@@ -1,0 +1,337 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer base {
+  :root {
+    /* ベースカラー（比率2 - 白） */
+    --background: 0 0% 100%;
+    --foreground: 225 30% 20%;
+    --card: 0 0% 100%;
+    --card-foreground: 225 30% 20%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 225 30% 20%;
+    
+    /* メインカラー（比率3 - ASICS BLUE） */
+    --primary: 225 65% 35%; /* ASICS BLUE */
+    --primary-foreground: 0 0% 100%;
+    
+    /* アクセントカラー（比率1 - 里山グリーン） */
+    --secondary: 166 30% 55%; /* 里山グリーン */
+    --secondary-foreground: 0 0% 100%;
+    
+    /* アクセントカラー（比率1 - 里山ゴールド） */
+    --accent: 40 42% 53%; /* 里山ゴールド */
+    --accent-foreground: 0 0% 100%;
+    
+    --muted: 210 20% 96.1%;
+    --muted-foreground: 225 15% 40%;
+    --destructive: 343 79% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 225 15% 85%;
+    --input: 225 15% 85%;
+    --ring: 225 65% 35%;
+    
+    /* チャートカラー */
+    --chart-1: 225 65% 35%; /* ASICS BLUE */
+    --chart-2: 166 30% 55%; /* 里山グリーン */
+    --chart-3: 40 42% 53%; /* 里山ゴールド */
+    --chart-4: 217 100% 22%; /* 群青 */
+    --chart-5: 55 100% 50%; /* 黄色 */
+    
+    --radius: 0.75rem;
+    
+    /* サイドバー（ASICS BLUEベース） */
+    --sidebar-background: 225 65% 35%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-primary: 166 30% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 50% 45%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 225 40% 50%;
+    --sidebar-ring: 166 30% 55%;
+  }
+  .dark {
+    /* ダークモード */
+    --background: 225 40% 8%;
+    --foreground: 0 0% 95%;
+    --card: 225 40% 12%;
+    --card-foreground: 0 0% 95%;
+    --popover: 225 40% 12%;
+    --popover-foreground: 0 0% 95%;
+    
+    /* メインカラー */
+    --primary: 225 55% 45%; /* ASICS BLUE (暗め) */
+    --primary-foreground: 0 0% 100%;
+    
+    /* アクセントカラー */
+    --secondary: 166 25% 45%; /* 里山グリーン (暗め) */
+    --secondary-foreground: 0 0% 100%;
+    
+    --accent: 40 35% 43%; /* 里山ゴールド (暗め) */
+    --accent-foreground: 0 0% 100%;
+    
+    --muted: 225 20% 15%;
+    --muted-foreground: 225 10% 65%;
+    --destructive: 343 70% 40%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 225 20% 20%;
+    --input: 225 20% 20%;
+    --ring: 166 25% 45%;
+    
+    /* チャートカラー */
+    --chart-1: 225 55% 45%;
+    --chart-2: 166 25% 45%;
+    --chart-3: 40 35% 43%;
+    --chart-4: 217 80% 35%;
+    --chart-5: 55 90% 45%;
+    
+    /* サイドバー */
+    --sidebar-background: 225 60% 18%;
+    --sidebar-foreground: 0 0% 95%;
+    --sidebar-primary: 166 25% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 45% 30%;
+    --sidebar-accent-foreground: 0 0% 95%;
+    --sidebar-border: 225 30% 30%;
+    --sidebar-ring: 166 25% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Yu Gothic Medium", "游ゴシック Medium", "Yu Gothic", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans CJK JP", sans-serif;
+    font-weight: 500;
+    min-height: 100vh;
+  }
+}
+
+/* FC今治ブランドフォント */
+.font-heading {
+  font-family: "Yu Gothic Bold", "游ゴシック Bold", "Hiragino Kaku Gothic StdN", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.font-body {
+  font-family: "Yu Gothic Medium", "游ゴシック Medium", "Yu Gothic", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans CJK JP", sans-serif;
+  font-weight: 500;
+}
+
+.font-caption {
+  font-family: "Yu Gothic", "游ゴシック", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans CJK JP", sans-serif;
+  font-weight: 400;
+}
+
+/* 英数字用フォント (代替) */
+.font-english {
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* 犬の足跡パターン背景 */
+.paw-pattern {
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(139, 115, 85, 0.05) 2%, transparent 2%),
+    radial-gradient(circle at 35% 25%, rgba(139, 115, 85, 0.05) 1.5%, transparent 1.5%),
+    radial-gradient(circle at 25% 40%, rgba(139, 115, 85, 0.05) 1.5%, transparent 1.5%),
+    radial-gradient(circle at 30% 35%, rgba(139, 115, 85, 0.05) 3%, transparent 3%),
+    radial-gradient(circle at 70% 60%, rgba(139, 115, 85, 0.05) 2%, transparent 2%),
+    radial-gradient(circle at 85% 55%, rgba(139, 115, 85, 0.05) 1.5%, transparent 1.5%),
+    radial-gradient(circle at 75% 70%, rgba(139, 115, 85, 0.05) 1.5%, transparent 1.5%),
+    radial-gradient(circle at 80% 65%, rgba(139, 115, 85, 0.05) 3%, transparent 3%);
+  background-size: 100px 100px;
+  background-position: 0 0, 0 0, 0 0, 0 0, 50px 50px, 50px 50px, 50px 50px, 50px 50px;
+}
+
+/* FC今治カードのホバーエフェクト */
+.card-hover {
+  @apply transition-all duration-300 ease-in-out;
+}
+
+.card-hover:hover {
+  @apply transform -translate-y-2 shadow-2xl;
+  border-color: hsl(var(--fc-imabari-yellow));
+}
+
+.card-fc-hover {
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-fc-hover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #003273, #FFEB00);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+
+.card-fc-hover:hover::before {
+  transform: scaleX(1);
+}
+
+/* 丸みを帯びたボタン */
+.btn-rounded {
+  @apply rounded-full transition-all duration-300;
+}
+
+.btn-rounded:hover {
+  @apply transform scale-105 shadow-lg;
+}
+
+/* グラデーションボタン */
+.btn-gradient-nature {
+  @apply bg-gradient-to-r from-nature-green to-nature-green-light text-white font-bold rounded-full px-6 py-3 transition-all duration-300;
+}
+
+.btn-gradient-nature:hover {
+  @apply shadow-lg transform scale-105;
+}
+
+.btn-gradient-sky {
+  @apply bg-gradient-to-r from-nature-sky-deep to-nature-sky text-white font-bold rounded-full px-6 py-3 transition-all duration-300;
+}
+
+.btn-gradient-sky:hover {
+  @apply shadow-lg transform scale-105;
+}
+
+/* FC今治ブランドアニメーション */
+@keyframes wave {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.wave-animation {
+  animation: wave 20s linear infinite;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+@keyframes pulse-fc {
+  0%, 100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.pulse-fc {
+  animation: pulse-fc 2s ease-in-out infinite;
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.slide-in-right {
+  animation: slide-in-right 0.4s ease-out;
+}
+
+/* 既存のアニメーション */
+@keyframes wag-tail {
+  0%, 100% { transform: rotate(-10deg); }
+  50% { transform: rotate(10deg); }
+}
+
+.dog-wag {
+  animation: wag-tail 0.5s ease-in-out infinite;
+}
+
+@keyframes bounce-soft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+.bounce-soft {
+  animation: bounce-soft 2s ease-in-out infinite;
+}
+
+/* 自然な影 */
+.nature-shadow {
+  box-shadow: 0 4px 6px -1px rgba(74, 124, 89, 0.1), 0 2px 4px -1px rgba(74, 124, 89, 0.06);
+}
+
+.nature-shadow-lg {
+  box-shadow: 0 10px 15px -3px rgba(74, 124, 89, 0.1), 0 4px 6px -2px rgba(74, 124, 89, 0.05);
+}
+
+/* FC今治 波形デザイン */
+.wave-border {
+  position: relative;
+  overflow: hidden;
+}
+
+.wave-border::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 30px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 40'%3E%3Cpath d='M0,20 Q50,5 100,20 T200,20 L200,40 L0,40 Z' fill='%23FFEB00' opacity='0.3'/%3E%3C/svg%3E");
+  background-size: 200px 40px;
+  animation: wave 10s linear infinite;
+}
+
+/* 草原の境界線 */
+.grass-border {
+  position: relative;
+}
+
+.grass-border::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    #98FB98,
+    #98FB98 5px,
+    #7CFC00 5px,
+    #7CFC00 10px
+  );
+  border-radius: 2px;
+}

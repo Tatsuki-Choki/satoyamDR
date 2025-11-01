@@ -1,0 +1,152 @@
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+
+name: Build and deploy Node.js app to Azure Web App - app-002-gen10-step3-2-node-oshima14
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read #This is required for actions/checkout
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18.17.0'
+
+      - name: Install & Build
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+        run: |
+          echo "=== Starting Build Process ==="
+          echo "Current directory: $(pwd)"
+          echo "Node version: $(node --version)"
+          echo "npm version: $(npm --version)"
+          
+          echo "=== Setting npm version ==="
+          npm install -g npm@9.8.1
+          echo "New npm version: $(npm --version)"
+          
+          echo "=== Cleaning npm cache ==="
+          npm cache clean --force
+          
+          echo "=== Removing existing files ==="
+          rm -rf node_modules package-lock.json
+          
+          echo "=== Installing dependencies ==="
+          npm install
+          
+          echo "=== Building application ==="
+          npm run build
+          
+          echo "=== Build completed ==="
+          
+      - name: Debug Build Output
+        run: |
+          echo "=== Build Output Debug ==="
+          echo "Current directory: $(pwd)"
+          echo "=== Environment Info ==="
+          echo "Node version: $(node --version)"
+          echo "npm version: $(npm --version)"
+          echo "OS: $(uname -a)"
+          echo "Memory: $(free -h || echo 'Memory info not available')"
+          echo "Disk space: $(df -h .)"
+          
+          echo "=== .next folder contents ==="
+          ls -la .next/
+          
+          echo "=== Checking server folder ==="
+          if [ -d .next/server ]; then
+            echo "✅ Server folder exists"
+            echo "=== Server folder contents ==="
+            ls -la .next/server/
+            
+            echo "=== Checking font-manifest.json ==="
+            if [ -f .next/server/font-manifest.json ]; then
+              echo "✅ font-manifest.json exists"
+              ls -la .next/server/font-manifest.json
+            else
+              echo "❌ font-manifest.json NOT found"
+            fi
+          else
+            echo "❌ Server folder NOT found"
+          fi
+          
+          echo "=== Checking static folder ==="
+          if [ -d .next/static ]; then
+            echo "✅ Static folder exists"
+            echo "=== Static folder contents ==="
+            ls -la .next/static/
+          else
+            echo "❌ Static folder NOT found"
+          fi
+
+      - name: Prepare deploy (standard output)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .next/server/font-manifest.json
+
+          rm -rf deploy
+          mkdir -p deploy
+
+          echo "=== Copying build files ==="
+          cp -r .next deploy/
+          cp -r public deploy/ 2>/dev/null || echo "No public folder found"
+          cp package.json deploy/
+          cp package-lock.json deploy/ 2>/dev/null || echo "No package-lock.json found"
+          
+          echo "=== Installing production dependencies ==="
+          cd deploy
+          if [ -f package-lock.json ]; then
+            echo "Using npm ci for faster install"
+            npm ci --only=production
+          else
+            echo "Using npm install for production dependencies"
+            npm install --production
+          fi
+          cd ..
+          
+          echo "=== Deploy folder contents ==="
+          ls -la deploy/
+
+      - name: Zip artifact
+        run: |
+          echo "=== Creating deployment package ==="
+          cd deploy
+          zip -r ../release.zip . -x "node_modules/.cache/*" "*.log"
+          cd ..
+          echo "=== Package size ==="
+          ls -lh release.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-package
+          path: release.zip
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: next-package
+
+      - name: 'Deploy to Azure Web App'
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'app-002-gen10-step3-2-node-oshima14'
+          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_8986D6CA4BB8499185A89EA1967A2BD9 }}
+          package: release.zip

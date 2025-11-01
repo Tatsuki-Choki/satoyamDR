@@ -1,0 +1,21 @@
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mindex 6b32a2e5..41f82667 100644[m
+[1m--- a/.gitignore[m
+[1m+++ b/.gitignore[m
+[36m@@ -1,3 +1,12 @@[m
+[31m-node_modules/[m
+[32m+[m[32m# Next.js[m
+ .next/[m
+[31m-.env.local[m
+\ No newline at end of file[m
+[32m+[m[32mout/[m
+[32m+[m[32m# parcel-bundler cache (https://parceljs.org/)[m
+[32m+[m[32m.cache[m
+[32m+[m[32m.parcel-cache[m
+[32m+[m
+[32m+[m[32m# next.js build output[m
+[32m+[m[32m.next[m
+[32m+[m
+[32m+[m[32m# nuxt.js build output[m
+[32m+[m[32m.nuxt[m
+\ No newline at end of file[m
