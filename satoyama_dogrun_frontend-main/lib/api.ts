@@ -617,25 +617,11 @@ export const apiClient = {
     }
   },
 
-  // 管理者認証
-  adminLogin: async (email: string, password: string): Promise<any> => {
-    try {
-      const response = await api.post('/admin/auth/login', { email, password });
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
-  },
-
   // 管理者用API
   getAdminApplications: async (): Promise<any> => {
     try {
-      const token = localStorage.getItem('admin_access_token');
-      const response = await api.get('/admin/applications', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      // リクエストインターセプターが自動的にトークンを追加するため、手動設定は不要
+      const response = await api.get('/admin/applications');
       return response.data;
     } catch (error) {
       throw error;
@@ -644,13 +630,9 @@ export const apiClient = {
 
   approveApplication: async (applicationId: string, notes?: string): Promise<any> => {
     try {
-      const token = localStorage.getItem('admin_access_token');
+      // リクエストインターセプターが自動的にトークンを追加するため、手動設定は不要
       const response = await api.put(`/admin/applications/${applicationId}/approve`, {
         admin_notes: notes
-      }, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
       return response.data;
     } catch (error) {
@@ -660,14 +642,10 @@ export const apiClient = {
 
   rejectApplication: async (applicationId: string, reason: string): Promise<any> => {
     try {
-      const token = localStorage.getItem('admin_access_token');
+      // リクエストインターセプターが自動的にトークンを追加するため、手動設定は不要
       const response = await api.put(`/admin/applications/${applicationId}/reject`, {
         rejection_reason: reason,
         admin_notes: reason
-      }, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
       });
       return response.data;
     } catch (error) {

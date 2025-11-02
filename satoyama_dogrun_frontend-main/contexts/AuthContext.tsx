@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react"
+import { apiClient } from "@/lib/api"
 
 interface AuthContextType {
   isAuthenticated: boolean
@@ -12,27 +13,42 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // 認証を常に有効にする
-  const [isAuthenticated, setIsAuthenticated] = useState(true)
-  const [user, setUser] = useState<any | null>({ email: "admin@satoyama-dogrun.com", role: "admin" })
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [user, setUser] = useState<any | null>(null)
 
-  // 初期化時にダミーの認証状態を設定
+  // 初期化時にlocalStorageから認証状態を復元
   useEffect(() => {
-    setIsAuthenticated(true)
-    setUser({ email: "admin@satoyama-dogrun.com", role: "admin" })
+    const adminToken = localStorage.getItem('admin_access_token')
+    if (adminToken) {
+      setIsAuthenticated(true)
+      setUser({ email: "admin@satoyama-dogrun.com", role: "admin" })
+    }
   }, [])
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // 常に認証成功とする
-    setIsAuthenticated(true)
-    setUser({ email: "admin@satoyama-dogrun.com", role: "admin" })
-    return true
+    try {
+      // apiClient.adminLoginを使用してAPIを呼び出し、トークンを保存
+      const response = await apiClient.adminLogin({ email, password })
+      
+      if (response.access_token) {
+        setIsAuthenticated(true)
+        setUser({ email, role: "admin" })
+        return true
+      }
+      return false
+    } catch (error) {
+      console.error("Login error:", error)
+      setIsAuthenticated(false)
+      setUser(null)
+      return false
+    }
   }
 
   const logout = () => {
-    // ログアウトしても認証状態を維持
-    setIsAuthenticated(true)
-    setUser({ email: "admin@satoyama-dogrun.com", role: "admin" })
+    // localStorageからトークンを削除
+    localStorage.removeItem('admin_access_token')
+    setIsAuthenticated(false)
+    setUser(null)
   }
 
   return (
