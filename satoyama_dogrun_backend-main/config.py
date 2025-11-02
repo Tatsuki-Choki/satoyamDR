@@ -21,9 +21,22 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./satoyama_dogrun.db"
     
     # JWT設定
-    secret_key: str = "your-secret-key-here-change-this-in-production"
+    secret_key: str = ""  # 環境変数から必須で読み込む
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # SECRET_KEYの検証
+        if not self.secret_key or self.secret_key == "your-secret-key-here-change-this-in-production":
+            import os
+            env_secret = os.getenv("SECRET_KEY")
+            if not env_secret or env_secret == "your-secret-key-here-change-this-in-production":
+                raise ValueError(
+                    "SECRET_KEYが設定されていません。環境変数SECRET_KEYを設定してください。"
+                    "本番環境では強力なランダムな文字列を使用してください。"
+                )
+            self.secret_key = env_secret
     
     # CORS設定
     allowed_origins: List[str] = [

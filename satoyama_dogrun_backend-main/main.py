@@ -9,8 +9,13 @@ from datetime import datetime, date
 import os
 import shutil
 from pathlib import Path
-from dotenv import load_dotenv
+from exceptions import (
+    SatoyamaDogrunException, ValidationError, AuthenticationError,
+    AuthorizationError, NotFoundError, ConflictError, DatabaseError,
+    FileUploadError
+)
 from sqlalchemy.orm import Session
+from dotenv import load_dotenv
 
 # 統一されたschemasインポート（重複を整理）
 from db_control.models import User as DbUser
@@ -27,7 +32,7 @@ from db_control.models import EventRegistration as DbEventRegistration
 from db_control.models import EntryLog as DbEntryLog
 from db_control.models import EntryAction
 from db_control.models import EventStatus
-from db_control.models import AdminUser, AdminLog, Application, ApplicationStatus, BusinessHour, SpecialHoliday, SystemSetting
+from db_control.models import AdminUser, AdminLog, Application, ApplicationStatus, BusinessHour, SpecialHoliday, SystemSetting, Notice, Tag
 from database import engine, get_db
 from auth import (
     get_current_user, create_access_token, verify_password, get_password_hash,
@@ -70,15 +75,21 @@ app = FastAPI(
 
 # CORS設定
 default_origins = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://127.0.0.1:3003,https://app-002-gen10-step3-2-node-oshima14.azurewebsites.net"
-allowed_origins = os.getenv("ALLOWED_ORIGINS", default_origins).split(",")
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", default_origins)
+allowed_origins = allowed_origins_env.split(",")
 # 空文字列を除去してクリーンなリストを作成
 allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
 
+# 本番環境ではワイルドカードを許可しない
+is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
+if is_production and "*" in allowed_origins:
+    raise ValueError("本番環境ではCORSのワイルドカード(*)は許可できません。ALLOWED_ORIGINSに具体的なオリジンを設定してください。")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 全てのオリジンを許可（開発環境用）
+    allow_origins=allowed_origins if not is_production else allowed_origins,  # 環境変数から読み込んだオリジンを使用
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -177,9 +188,9 @@ async def get_dashboard_stats(
     pending_posts = db.query(DbPost).filter(
         DbPost.status == "pending"
     ).count()
-    total_events = db.query(Event).count()
-    active_events = db.query(Event).filter(
-        Event.event_date >= date.today()
+    total_events = db.query(DbEvent).count()
+    active_events = db.query(DbEvent).filter(
+        DbEvent.event_date >= date.today()
     ).count()
     total_notices = db.query(Notice).count()
     published_notices = total_notices  # announcementsテーブルにはstatusカラムがないため、全件を公開済みとして扱う
@@ -310,73 +321,84 @@ async def approve_application(
     """申請承認"""
     from uuid import uuid4
     
-    application = db.query(Application).filter(Application.id == application_id).first()
-    if not application:
-        raise HTTPException(status_code=404, detail="申請が見つかりません")
-    
-    # 既に承認済みの場合はエラー
-    if application.status == ApplicationStatus.approved:
-        raise HTTPException(status_code=400, detail="この申請は既に承認されています")
-    
-    # 新規申請の場合（user_idがNULL）、ユーザーを作成
-    if application.user_id is None and application.user_email:
-        # メールアドレスの重複チェック
-        existing_user = db.query(DbUser).filter(DbUser.email == application.user_email).first()
-        if existing_user:
-            raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています")
+    try:
+        application = db.query(Application).filter(Application.id == application_id).first()
+        if not application:
+            raise HTTPException(status_code=404, detail="申請が見つかりません")
         
-        # ユーザー作成
-        new_user = DbUser(
-            id=str(uuid4()),
-            email=application.user_email,
-            password_hash=application.user_password_hash,  # 申請時に保存したハッシュ値を使用
-            last_name=application.user_last_name,
-            first_name=application.user_first_name,
-            phone_number=application.user_phone,
-            address=application.user_address,
-            prefecture=application.user_prefecture,
-            city=application.user_city,
-            created_at=datetime.utcnow()
-        )
-        db.add(new_user)
-        db.flush()  # ユーザーをデータベースに反映（コミット前）
+        # 既に承認済みの場合はエラー
+        if application.status == ApplicationStatus.approved:
+            raise HTTPException(status_code=400, detail="この申請は既に承認されています")
         
-        # 犬情報も同時に登録
-        if application.dog_name:
-            new_dog = DbDog(
+        # 新規申請の場合（user_idがNULL）、ユーザーを作成
+        if application.user_id is None and application.user_email:
+            # メールアドレスの重複チェック
+            existing_user = db.query(DbUser).filter(DbUser.email == application.user_email).first()
+            if existing_user:
+                raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています")
+            
+            # ユーザー作成（申請時に保存したハッシュ値を使用）
+            # セキュリティ: 申請時にハッシュ化されたパスワードを使用
+            if not application.user_password_hash:
+                raise HTTPException(status_code=400, detail="申請データにパスワードハッシュが存在しません")
+            
+            new_user = DbUser(
                 id=str(uuid4()),
-                owner_id=new_user.id,  # owner_idが正しいカラム名
-                name=application.dog_name,
-                breed=application.dog_breed,
-                birthday_at=date.today(),  # 仮の誕生日を設定（必須フィールドのため）
-                gender=application.dog_gender,
+                email=application.user_email,
+                password_hash=application.user_password_hash,  # 申請時に保存したハッシュ値を使用
+                last_name=application.user_last_name,
+                first_name=application.user_first_name,
+                phone_number=application.user_phone,
+                address=application.user_address,
+                prefecture=application.user_prefecture,
+                city=application.user_city,
                 created_at=datetime.utcnow()
             )
-            db.add(new_dog)
+            db.add(new_user)
+            db.flush()  # ユーザーをデータベースに反映（コミット前）
+            
+            # 犬情報も同時に登録
+            if application.dog_name:
+                new_dog = DbDog(
+                    id=str(uuid4()),
+                    owner_id=new_user.id,
+                    name=application.dog_name,
+                    breed=application.dog_breed,
+                    birthday_at=date.today(),  # 仮の誕生日を設定（必須フィールドのため）
+                    gender=application.dog_gender,
+                    created_at=datetime.utcnow()
+                )
+                db.add(new_dog)
+            
+            # applicationのuser_idを更新
+            application.user_id = new_user.id
         
-        # applicationのuser_idを更新
-        application.user_id = new_user.id
-    
-    # 申請ステータスを承認に更新
-    application.status = ApplicationStatus.approved
-    application.admin_notes = request.admin_notes
-    application.approved_by = current_admin.id
-    application.approved_at = datetime.utcnow()
-    application.updated_at = datetime.utcnow()
-    
-    db.commit()
-    
-    # 管理者ログを記録
-    await log_admin_action(
-        admin_user_id=current_admin.id,
-        action="application_approved",
-        target_type="application",
-        target_id=application_id,
-        details=f"申請を承認しました: {request.admin_notes or 'なし'}",
-        db=db
-    )
-    
-    return {"message": "申請を承認し、ユーザーを作成しました"}
+        # 申請ステータスを承認に更新
+        application.status = ApplicationStatus.approved
+        application.admin_notes = request.admin_notes
+        application.approved_by = current_admin.id
+        application.approved_at = datetime.utcnow()
+        application.updated_at = datetime.utcnow()
+        
+        db.commit()
+        
+        # 管理者ログを記録
+        await log_admin_action(
+            admin_user_id=current_admin.id,
+            action="application_approved",
+            target_type="application",
+            target_id=application_id,
+            details=f"申請を承認しました: {request.admin_notes or 'なし'}",
+            db=db
+        )
+        
+        return {"message": "申請を承認し、ユーザーを作成しました"}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"申請承認処理中にエラーが発生しました: {str(e)}")
 
 @app.put("/admin/applications/{application_id}/reject")
 async def reject_application(
@@ -386,34 +408,44 @@ async def reject_application(
     db=Depends(get_db)
 ):
     """申請却下"""
-    application = db.query(Application).filter(Application.id == application_id).first()
-    if not application:
-        raise HTTPException(status_code=404, detail="申請が見つかりません")
-    
-    # 既に処理済みの場合はエラー
-    if application.status != ApplicationStatus.pending:
-        raise HTTPException(status_code=400, detail="この申請は既に処理されています")
-    
-    application.status = ApplicationStatus.rejected
-    application.admin_notes = request.admin_notes
-    application.rejection_reason = request.rejection_reason
-    application.approved_by = current_admin.id
-    application.approved_at = datetime.utcnow()
-    application.updated_at = datetime.utcnow()
-    
-    db.commit()
-    
-    # 管理者ログを記録
-    await log_admin_action(
-        admin_user_id=current_admin.id,
-        action="application_rejected",
-        target_type="application",
-        target_id=application_id,
-        details=f"申請を却下しました: {request.admin_notes or 'なし'}",
-        db=db
-    )
-    
-    return {"message": "申請を却下しました"}
+    try:
+        application = db.query(Application).filter(Application.id == application_id).first()
+        if not application:
+            raise NotFoundError("申請", application_id)
+        
+        # 既に処理済みの場合はエラー
+        if application.status != ApplicationStatus.pending:
+            raise ConflictError("この申請は既に処理されています")
+        
+        application.status = ApplicationStatus.rejected
+        application.admin_notes = request.admin_notes
+        application.rejection_reason = request.rejection_reason
+        application.approved_by = current_admin.id
+        application.approved_at = datetime.utcnow()
+        application.updated_at = datetime.utcnow()
+        
+        db.commit()
+        
+        # 管理者ログを記録
+        await log_admin_action(
+            admin_user_id=current_admin.id,
+            action="application_rejected",
+            target_type="application",
+            target_id=application_id,
+            details=f"申請を却下しました: {request.admin_notes or 'なし'}",
+            db=db
+        )
+        
+        return {"message": "申請を却下しました"}
+    except SatoyamaDogrunException as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"申請却下処理中にエラーが発生しました: {str(e)}")
 
 # ユーザー管理（完全実装）
 @app.get("/admin/users", response_model=List[UserDbResponse])
@@ -641,13 +673,14 @@ async def get_user_dogs_admin(
     dogs = db.query(DbDog).filter(DbDog.owner_id == user_id).all()
     return [DogDbResponse(
         id=dog.id,
-        user_id=dog.user_id,
+        owner_id=dog.owner_id,
         name=dog.name,
         breed=dog.breed,
-        weight=dog.weight,
+        birthday_at=dog.birthday_at,
+        gender=dog.gender,
         personality=dog.personality,
-        vaccination_status=dog.vaccination_status,
-        last_vaccination_date=dog.last_vaccination_date,
+        likes=dog.likes,
+        avatar_url=dog.avatar_url,
         created_at=dog.created_at,
         updated_at=dog.updated_at
     ) for dog in dogs]
@@ -659,16 +692,38 @@ async def get_user_posts_admin(
     db=Depends(get_db)
 ):
     """ユーザーの投稿一覧取得"""
+    from sqlalchemy import func
+    
     posts = db.query(DbPost).filter(DbPost.user_id == user_id).order_by(DbPost.created_at.desc()).all()
+    
+    if not posts:
+        return []
+    
+    post_ids = [post.id for post in posts]
+    
+    # ユーザー情報を取得（user_idは既に分かっているので一度だけ）
+    user = db.query(DbUser).filter(DbUser.id == user_id).first()
+    user_name = f"{user.last_name} {user.first_name}" if user else "不明"
+    
+    # いいね数とコメント数を一括取得
+    comments_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbComment.post_id,
+            func.count(DbComment.id)
+        ).filter(DbComment.post_id.in_(post_ids)).group_by(DbComment.post_id).all()
+    }
+    
+    likes_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbLike.post_id,
+            func.count(DbLike.id)
+        ).filter(DbLike.post_id.in_(post_ids)).group_by(DbLike.post_id).all()
+    }
     
     responses = []
     for post in posts:
-        user = db.query(DbUser).filter(DbUser.id == post.user_id).first()
-        user_name = f"{user.last_name} {user.first_name}" if user else "不明"
-        
-        likes_count = db.query(DbLike).filter(DbLike.post_id == post.id).count()
-        comments_count = db.query(DbComment).filter(DbComment.post_id == post.id).count()
-        
         responses.append(PostManagementResponse(
             id=post.id,
             user_id=post.user_id,
@@ -676,8 +731,8 @@ async def get_user_posts_admin(
             content=post.content,
             status=post.status,
             admin_notes=post.admin_notes,
-            likes_count=likes_count,
-            comments_count=comments_count,
+            likes_count=likes_counts.get(post.id, 0),
+            comments_count=comments_counts.get(post.id, 0),
             created_at=post.created_at,
             updated_at=post.updated_at
         ))
@@ -694,13 +749,14 @@ async def get_dogs_for_admin(
     dogs = db.query(DbDog).order_by(DbDog.created_at.desc()).all()
     return [DogDbResponse(
         id=dog.id,
-        user_id=dog.user_id,
+        owner_id=dog.owner_id,
         name=dog.name,
         breed=dog.breed,
-        weight=dog.weight,
+        birthday_at=dog.birthday_at,
+        gender=dog.gender,
         personality=dog.personality,
-        vaccination_status=dog.vaccination_status,
-        last_vaccination_date=dog.last_vaccination_date,
+        likes=dog.likes,
+        avatar_url=dog.avatar_url,
         created_at=dog.created_at,
         updated_at=dog.updated_at
     ) for dog in dogs]
@@ -712,16 +768,27 @@ async def get_events_for_admin(
     db=Depends(get_db)
 ):
     """イベント一覧取得（管理者用）"""
+    from sqlalchemy import func
     from db_control.models import Event as DbEvent, EventRegistration
+    
     events = db.query(DbEvent).order_by(DbEvent.event_date.desc()).all()
+    
+    if not events:
+        return []
+    
+    event_ids = [event.id for event in events]
+    
+    # 参加者数を一括取得
+    participants_counts = {
+        event_id: count
+        for event_id, count in db.query(
+            EventRegistration.event_id,
+            func.count(EventRegistration.id)
+        ).filter(EventRegistration.event_id.in_(event_ids)).group_by(EventRegistration.event_id).all()
+    }
     
     responses = []
     for event in events:
-        # 参加者数を取得
-        participants_count = db.query(EventRegistration).filter(
-            EventRegistration.event_id == event.id
-        ).count()
-        
         responses.append(EventManagementResponse(
             id=event.id,
             title=event.title,
@@ -731,7 +798,7 @@ async def get_events_for_admin(
             end_time=str(event.end_time) if event.end_time else "",
             location=event.location or "",
             capacity=event.capacity or 0,
-            current_participants=participants_count,
+            current_participants=participants_counts.get(event.id, 0),
             fee=event.fee or 0,
             status=str(event.status) if event.status else "reception",
             created_at=event.created_at,
@@ -985,14 +1052,26 @@ async def get_event_registrations(
         EventRegistration.event_id == event_id
     ).all()
     
+    if not registrations:
+        return []
+    
+    user_ids = list(set(reg.user_id for reg in registrations))
+    dog_ids = list(set(reg.dog_id for reg in registrations if reg.dog_id))
+    
+    # ユーザー情報を一括取得
+    users = {u.id: u for u in db.query(DbUser).filter(DbUser.id.in_(user_ids)).all()}
+    
+    # 犬情報を一括取得
+    dogs = {d.id: d for d in db.query(DbDog).filter(DbDog.id.in_(dog_ids)).all()}
+    
     responses = []
     for reg in registrations:
-        user = db.query(DbUser).filter(DbUser.id == reg.user_id).first()
+        user = users.get(reg.user_id)
         user_name = f"{user.last_name} {user.first_name}" if user else "不明"
         
         dog_name = None
         if reg.dog_id:
-            dog = db.query(DbDog).filter(DbDog.id == reg.dog_id).first()
+            dog = dogs.get(reg.dog_id)
             dog_name = dog.name if dog else None
         
         responses.append(EventRegistrationResponse(
@@ -1077,6 +1156,8 @@ async def get_posts_for_admin(
     db=Depends(get_db)
 ):
     """投稿一覧取得（管理者用）"""
+    from sqlalchemy import func
+    
     query = db.query(DbPost)
     
     if status:
@@ -1084,15 +1165,36 @@ async def get_posts_for_admin(
     
     posts = query.order_by(DbPost.created_at.desc()).all()
     
+    if not posts:
+        return []
+    
+    post_ids = [post.id for post in posts]
+    user_ids = list(set(post.user_id for post in posts))
+    
+    # ユーザー情報を一括取得
+    users = {u.id: u for u in db.query(DbUser).filter(DbUser.id.in_(user_ids)).all()}
+    
+    # いいね数とコメント数を一括取得
+    comments_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbComment.post_id,
+            func.count(DbComment.id)
+        ).filter(DbComment.post_id.in_(post_ids)).group_by(DbComment.post_id).all()
+    }
+    
+    likes_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbLike.post_id,
+            func.count(DbLike.id)
+        ).filter(DbLike.post_id.in_(post_ids)).group_by(DbLike.post_id).all()
+    }
+    
     responses = []
     for post in posts:
-        # ユーザー情報を取得
-        user = db.query(DbUser).filter(DbUser.id == post.user_id).first()
+        user = users.get(post.user_id)
         user_name = f"{user.last_name} {user.first_name}" if user else "不明"
-        
-        # いいね数とコメント数を取得
-        likes_count = db.query(DbLike).filter(DbLike.post_id == post.id).count()
-        comments_count = db.query(DbComment).filter(DbComment.post_id == post.id).count()
         
         responses.append(PostManagementResponse(
             id=post.id,
@@ -1101,8 +1203,8 @@ async def get_posts_for_admin(
             content=post.content,
             status=post.status,
             admin_notes=post.admin_notes,
-            likes_count=likes_count,
-            comments_count=comments_count,
+            likes_count=likes_counts.get(post.id, 0),
+            comments_count=comments_counts.get(post.id, 0),
             created_at=post.created_at,
             updated_at=post.updated_at
         ))
@@ -1212,7 +1314,7 @@ async def delete_post(
     # 関連データも削除
     db.query(DbComment).filter(DbComment.post_id == post_id).delete()
     db.query(DbLike).filter(DbLike.post_id == post_id).delete()
-    db.query(PostHashtag).filter(PostHashtag.post_id == post_id).delete()
+    db.query(DbPostHashtag).filter(DbPostHashtag.post_id == post_id).delete()
     
     db.delete(post)
     db.commit()
@@ -1394,11 +1496,12 @@ async def apply_registration(
     full_address = f"{prefecture} {city} {street} {building or ''}".strip()
 
     # 申請データを作成
+    # セキュリティ: パスワードはハッシュ化して保存
     application = Application(
         id=str(uuid4()),
         user_id=None,
         user_email=email,
-        user_password_hash=get_password_hash(password),
+        user_password_hash=get_password_hash(password),  # 申請時にハッシュ化して保存
         user_last_name=last_name,
         user_first_name=first_name,
         user_phone=phoneNumber,
@@ -1745,18 +1848,44 @@ async def get_posts(
     db=Depends(get_db)
 ):
     """投稿一覧取得 (db_control)"""
+    from sqlalchemy import func
+    
     query = db.query(DbPost)
     if search:
         query = query.filter(DbPost.content.contains(search))
+    
+    # 投稿を取得
     posts = query.order_by(DbPost.created_at.desc()).all()
+    
+    if not posts:
+        return []
+    
+    post_ids = [p.id for p in posts]
+    
+    # コメント数といいね数を一括取得
+    comments_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbComment.post_id,
+            func.count(DbComment.id)
+        ).filter(DbComment.post_id.in_(post_ids)).group_by(DbComment.post_id).all()
+    }
+    
+    likes_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbLike.post_id,
+            func.count(DbLike.id)
+        ).filter(DbLike.post_id.in_(post_ids)).group_by(DbLike.post_id).all()
+    }
+    
     responses: List[PostDbResponse] = []
     for p in posts:
-        comments_count = db.query(DbComment).filter(DbComment.post_id == p.id).count()
-        likes_count = db.query(DbLike).filter(DbLike.post_id == p.id).count()
         responses.append(PostDbResponse(
             id=p.id, user_id=p.user_id, content=p.content,
             created_at=p.created_at, updated_at=p.updated_at,
-            comments_count=comments_count, likes_count=likes_count
+            comments_count=comments_counts.get(p.id, 0),
+            likes_count=likes_counts.get(p.id, 0)
         ))
     return responses
 
@@ -1770,6 +1899,8 @@ async def get_posts_feed(
     db=Depends(get_db)
 ):
     """詳細な投稿フィード取得（画像、ハッシュタグ、ユーザー情報付き）"""
+    from sqlalchemy import func
+    
     query = db.query(DbPost)
     
     # ハッシュタグ検索
@@ -1788,31 +1919,67 @@ async def get_posts_feed(
     # ページネーション
     posts = query.order_by(DbPost.created_at.desc()).offset(offset).limit(limit).all()
     
+    if not posts:
+        return []
+    
+    post_ids = [post.id for post in posts]
+    user_ids = list(set(post.user_id for post in posts))
+    
+    # ユーザー情報を一括取得
+    users = {u.id: u for u in db.query(DbUser).filter(DbUser.id.in_(user_ids)).all()}
+    
+    # 画像URLを一括取得
+    images_data = db.query(DbPostImage.post_id, DbPostImage.image_url).filter(
+        DbPostImage.post_id.in_(post_ids)
+    ).all()
+    images_dict = {}
+    for post_id, image_url in images_data:
+        if post_id not in images_dict:
+            images_dict[post_id] = []
+        images_dict[post_id].append(image_url)
+    
+    # ハッシュタグを一括取得
+    hashtags_data = db.query(
+        DbPostHashtag.post_id,
+        DbHashtag.tag
+    ).join(DbHashtag, DbHashtag.id == DbPostHashtag.hashtag_id).filter(
+        DbPostHashtag.post_id.in_(post_ids)
+    ).all()
+    hashtags_dict = {}
+    for post_id, tag in hashtags_data:
+        if post_id not in hashtags_dict:
+            hashtags_dict[post_id] = []
+        hashtags_dict[post_id].append(tag)
+    
+    # コメント数といいね数を一括取得
+    comments_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbComment.post_id,
+            func.count(DbComment.id)
+        ).filter(DbComment.post_id.in_(post_ids)).group_by(DbComment.post_id).all()
+    }
+    
+    likes_counts = {
+        post_id: count
+        for post_id, count in db.query(
+            DbLike.post_id,
+            func.count(DbLike.id)
+        ).filter(DbLike.post_id.in_(post_ids)).group_by(DbLike.post_id).all()
+    }
+    
+    # 現在のユーザーがいいねしている投稿を一括取得
+    liked_post_ids = set(
+        post_id for post_id, in db.query(DbLike.post_id).filter(
+            DbLike.post_id.in_(post_ids),
+            DbLike.user_id == current_user.id
+        ).all()
+    )
+    
     responses: List[PostDetailResponse] = []
     for post in posts:
-        # ユーザー情報取得
-        user = db.query(DbUser).filter(DbUser.id == post.user_id).first()
+        user = users.get(post.user_id)
         user_name = f"{user.last_name or ''} {user.first_name or ''}".strip() if user else "不明なユーザー"
-        
-        # 画像URL取得
-        images = db.query(DbPostImage.image_url).filter(DbPostImage.post_id == post.id).all()
-        image_urls = [img[0] for img in images]
-        
-        # ハッシュタグ取得
-        hashtags_query = db.query(DbHashtag.tag).join(
-            DbPostHashtag, DbHashtag.id == DbPostHashtag.hashtag_id
-        ).filter(DbPostHashtag.post_id == post.id)
-        hashtags = [tag[0] for tag in hashtags_query.all()]
-        
-        # カウント取得
-        comments_count = db.query(DbComment).filter(DbComment.post_id == post.id).count()
-        likes_count = db.query(DbLike).filter(DbLike.post_id == post.id).count()
-        
-        # 現在のユーザーがいいねしているか
-        is_liked = db.query(DbLike).filter(
-            DbLike.post_id == post.id,
-            DbLike.user_id == current_user.id
-        ).first() is not None
         
         responses.append(PostDetailResponse(
             id=post.id,
@@ -1820,13 +1987,13 @@ async def get_posts_feed(
             user_name=user_name,
             user_avatar=user.avatar_url if user else None,
             content=post.content,
-            images=image_urls,
-            hashtags=hashtags,
+            images=images_dict.get(post.id, []),
+            hashtags=hashtags_dict.get(post.id, []),
             created_at=post.created_at,
             updated_at=post.updated_at,
-            comments_count=comments_count,
-            likes_count=likes_count,
-            is_liked=is_liked
+            comments_count=comments_counts.get(post.id, 0),
+            likes_count=likes_counts.get(post.id, 0),
+            is_liked=post.id in liked_post_ids
         ))
     
     return responses
@@ -2044,18 +2211,28 @@ async def add_comment(
 async def get_upcoming_events_public(db=Depends(get_db)):
     """今後のイベント一覧取得（パブリックAPI）"""
     from datetime import date
+    from sqlalchemy import func
     
     events = db.query(DbEvent).filter(
         DbEvent.event_date >= date.today()
     ).order_by(DbEvent.event_date, DbEvent.start_time).all()
     
+    if not events:
+        return []
+    
+    event_ids = [event.id for event in events]
+    
+    # 参加者数を一括取得
+    participants_counts = {
+        event_id: count
+        for event_id, count in db.query(
+            DbEventRegistration.event_id,
+            func.count(DbEventRegistration.id)
+        ).filter(DbEventRegistration.event_id.in_(event_ids)).group_by(DbEventRegistration.event_id).all()
+    }
+    
     result = []
     for event in events:
-        # 参加者数を取得
-        participants_count = db.query(DbEventRegistration).filter(
-            DbEventRegistration.event_id == event.id
-        ).count()
-        
         result.append({
             "id": event.id,
             "title": event.title,
@@ -2067,7 +2244,7 @@ async def get_upcoming_events_public(db=Depends(get_db)):
             "capacity": event.capacity or 0,
             "fee": event.fee or 0,
             "status": event.status.value if hasattr(event.status, 'value') else "reception",
-            "current_participants": participants_count
+            "current_participants": participants_counts.get(event.id, 0)
         })
     
     return result
@@ -2079,6 +2256,8 @@ async def get_events(
     db=Depends(get_db)
 ):
     """イベント一覧取得（参加状況付き）"""
+    from sqlalchemy import func
+    
     query = db.query(DbEvent)
     
     if upcoming_only:
@@ -2087,19 +2266,30 @@ async def get_events(
     
     events = query.order_by(DbEvent.event_date, DbEvent.start_time).all()
     
+    if not events:
+        return []
+    
+    event_ids = [event.id for event in events]
+    
+    # 参加者数を一括取得
+    participants_counts = {
+        event_id: count
+        for event_id, count in db.query(
+            DbEventRegistration.event_id,
+            func.count(DbEventRegistration.id)
+        ).filter(DbEventRegistration.event_id.in_(event_ids)).group_by(DbEventRegistration.event_id).all()
+    }
+    
+    # 現在のユーザーが登録しているイベントを一括取得
+    registered_event_ids = set(
+        event_id for event_id, in db.query(DbEventRegistration.event_id).filter(
+            DbEventRegistration.event_id.in_(event_ids),
+            DbEventRegistration.user_id == current_user.id
+        ).all()
+    )
+    
     responses = []
     for event in events:
-        # 参加者数を取得
-        participants_count = db.query(DbEventRegistration).filter(
-            DbEventRegistration.event_id == event.id
-        ).count()
-        
-        # 現在のユーザーが登録しているか確認
-        is_registered = db.query(DbEventRegistration).filter(
-            DbEventRegistration.event_id == event.id,
-            DbEventRegistration.user_id == current_user.id
-        ).first() is not None
-        
         responses.append(EventDbResponse(
             id=event.id,
             title=event.title,
@@ -2111,8 +2301,8 @@ async def get_events(
             capacity=event.capacity or 0,
             fee=event.fee or 0,
             status=event.status.value if event.status else "reception",
-            current_participants=participants_count,
-            is_registered=is_registered,
+            current_participants=participants_counts.get(event.id, 0),
+            is_registered=event.id in registered_event_ids,
             created_at=event.created_at,
             updated_at=event.updated_at
         ))
@@ -2191,26 +2381,27 @@ async def register_for_event(
     
     # 新規登録
     from uuid import uuid4
-    for dog_id in request.dog_ids:
-        # 犬の所有権確認
-        dog = db.query(DbDog).filter(
-            DbDog.id == dog_id,
-            DbDog.owner_id == current_user.id
-        ).first()
+    if request.dog_ids:
+        # 犬の所有権確認をバルククエリで一括取得
+        owned_dogs = {
+            dog.id: dog
+            for dog in db.query(DbDog).filter(
+                DbDog.id.in_(request.dog_ids),
+                DbDog.owner_id == current_user.id
+            ).all()
+        }
         
-        if not dog:
-            continue  # 所有していない犬はスキップ
-        
-        registration = DbEventRegistration(
-            id=str(uuid4()),
-            user_id=current_user.id,
-            event_id=event_id,
-            dog_id=dog_id
-        )
-        db.add(registration)
-    
-    # ユーザーのみの登録（犬なし）
-    if not request.dog_ids:
+        for dog_id in request.dog_ids:
+            if dog_id in owned_dogs:
+                registration = DbEventRegistration(
+                    id=str(uuid4()),
+                    user_id=current_user.id,
+                    event_id=event_id,
+                    dog_id=dog_id
+                )
+                db.add(registration)
+    else:
+        # ユーザーのみの登録（犬なし）
         registration = DbEventRegistration(
             id=str(uuid4()),
             user_id=current_user.id,
@@ -2263,16 +2454,26 @@ async def get_event_participants(
         DbEventRegistration.event_id == event_id
     ).all()
     
+    if not registrations:
+        return []
+    
+    user_ids = list(set(reg.user_id for reg in registrations))
+    dog_ids = list(set(reg.dog_id for reg in registrations if reg.dog_id))
+    
+    # ユーザー情報を一括取得
+    users = {u.id: u for u in db.query(DbUser).filter(DbUser.id.in_(user_ids)).all()}
+    
+    # 犬情報を一括取得
+    dogs = {d.id: d for d in db.query(DbDog).filter(DbDog.id.in_(dog_ids)).all()}
+    
     responses = []
     for reg in registrations:
-        # ユーザー情報取得
-        user = db.query(DbUser).filter(DbUser.id == reg.user_id).first()
+        user = users.get(reg.user_id)
         user_name = f"{user.last_name or ''} {user.first_name or ''}".strip() if user else "不明"
         
-        # 犬情報取得（該当する場合）
         dog_name = None
         if reg.dog_id:
-            dog = db.query(DbDog).filter(DbDog.id == reg.dog_id).first()
+            dog = dogs.get(reg.dog_id)
             dog_name = dog.name if dog else None
         
         responses.append(EventParticipantResponse(
@@ -2393,18 +2594,14 @@ async def enter_dogrun(
     )
     db.add(entry_log)
     
-    # 犬の情報を取得
+    # 犬の情報をバルククエリで一括取得
     dogs_info = []
-    for dog_id in request.dog_ids:
-        dog = db.query(DbDog).filter(
-            DbDog.id == dog_id,
+    if request.dog_ids:
+        owned_dogs = db.query(DbDog).filter(
+            DbDog.id.in_(request.dog_ids),
             DbDog.owner_id == current_user.id
-        ).first()
-        if dog:
-            dogs_info.append({
-                "id": dog.id,
-                "name": dog.name
-            })
+        ).all()
+        dogs_info = [{"id": dog.id, "name": dog.name} for dog in owned_dogs]
     
     db.commit()
     
@@ -2477,14 +2674,33 @@ async def get_current_visitors(
         )
     ).filter(DbEntryLog.action == EntryAction.entry).all()
     
+    if not current_visitors:
+        return CurrentVisitorsResponse(
+            total_visitors=0,
+            total_dogs=0,
+            visitors=[]
+        )
+    
+    user_ids = list(set(log.user_id for log in current_visitors))
+    
+    # ユーザー情報を一括取得
+    users = {u.id: u for u in db.query(DbUser).filter(DbUser.id.in_(user_ids)).all()}
+    
+    # 犬情報を一括取得（各ユーザーの犬）
+    all_dogs = db.query(DbDog).filter(DbDog.owner_id.in_(user_ids)).all()
+    dogs_by_user = {}
+    for dog in all_dogs:
+        if dog.owner_id not in dogs_by_user:
+            dogs_by_user[dog.owner_id] = []
+        dogs_by_user[dog.owner_id].append(dog)
+    
     visitors = []
     total_dogs = 0
     
     for log in current_visitors:
-        user = db.query(DbUser).filter(DbUser.id == log.user_id).first()
+        user = users.get(log.user_id)
         if user:
-            # ユーザーの犬を取得
-            dogs = db.query(DbDog).filter(DbDog.owner_id == user.id).all()
+            dogs = dogs_by_user.get(user.id, [])
             dogs_info = [{"id": dog.id, "name": dog.name} for dog in dogs]
             total_dogs += len(dogs)
             
@@ -2514,12 +2730,15 @@ async def get_entry_history(
         DbEntryLog.user_id == current_user.id
     ).order_by(DbEntryLog.occurred_at.desc()).limit(limit).all()
     
+    if not logs:
+        return []
+    
+    # 同じユーザーの犬情報は一度だけ取得（キャッシュ）
+    dogs = db.query(DbDog).filter(DbDog.owner_id == current_user.id).all()
+    dog_names = [dog.name for dog in dogs]
+    
     history = []
     for log in logs:
-        # その時点での犬情報を取得（簡略化のため現在の犬情報を使用）
-        dogs = db.query(DbDog).filter(DbDog.owner_id == current_user.id).all()
-        dog_names = [dog.name for dog in dogs]
-        
         history.append(EntryHistoryResponse(
             id=log.id,
             user_id=log.user_id,
@@ -2551,29 +2770,6 @@ async def mark_notice_as_read(
     notice.read = True
     db.commit()
     return {"message": "既読にしました"}
-
-# 入場関連
-@app.post("/entry/scan")
-async def scan_qr_code(qr_data: str, db=Depends(get_db)):
-    """QRコードスキャン"""
-    # 実際の実装ではQRコードの検証を行う
-    return {"message": "QRコードを読み取りました", "qr_data": qr_data}
-
-@app.post("/entry/enter")
-async def enter_dog_run(
-    dog_ids: List[int],
-    current_user = Depends(get_current_user),
-    db=Depends(get_db)
-):
-    """ドッグラン入場"""
-    # 実際の実装では入場処理を行う
-    return {"message": "入場しました", "dog_ids": dog_ids}
-
-@app.post("/entry/exit")
-async def exit_dog_run(current_user = Depends(get_current_user)):
-    """ドッグラン退場"""
-    # 実際の実装では退場処理を行う
-    return {"message": "退場しました"}
 
 # タグ関連
 @app.get("/tags", response_model=List[TagResponse])

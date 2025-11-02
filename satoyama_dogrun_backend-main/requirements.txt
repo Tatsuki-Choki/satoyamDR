@@ -12,5 +12,7 @@ pytest==7.4.3
 pytest-asyncio==0.21.1
 httpx==0.25.2
 pymysql==1.1.1
+qrcode[pil]==7.4.2
+Pillow==10.1.0
 
 # Azure build fix - force refresh dependencies 

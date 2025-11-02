@@ -15,7 +15,12 @@ from db_control.models import User, AdminUser, AdminLog
 load_dotenv()
 
 # 設定
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY or SECRET_KEY == "your-secret-key-here-change-this-in-production":
+    raise ValueError(
+        "SECRET_KEYが設定されていません。環境変数SECRET_KEYを設定してください。"
+        "本番環境では強力なランダムな文字列を使用してください。"
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 管理者は長めの有効期限
