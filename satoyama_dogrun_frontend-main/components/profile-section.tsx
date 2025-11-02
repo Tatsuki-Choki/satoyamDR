@@ -11,7 +11,7 @@ import { toast } from "sonner"
 import { isVaccineUpToDate } from "@/lib/utils"
 import { UserStatus } from "@/lib/constants"
 import type { DogProfile, OwnerProfile } from "@/lib/types"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 
 interface ProfileSectionProps {
   userStatus: UserStatus
@@ -48,7 +48,7 @@ export function ProfileSection({
   const fetchProfileData = async () => {
     setLoading(true)
     try {
-      const profile = await apiClient.getUserProfile()
+      const profile = await userApiClient.getUserProfile()
       setProfileData(profile)
       
       // 犬情報を更新

@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 
 interface EventData {
   id: string
@@ -43,14 +43,14 @@ export function EventList({ onEventClick, isAuthenticated = true }: EventListPro
     try {
       // 認証状態に応じてAPIを使い分け
       const data = isAuthenticated 
-        ? await apiClient.getEvents(true)
-        : await apiClient.getPublicEvents()
+        ? await userApiClient.getEvents(true)
+        : await userApiClient.getPublicEvents()
       setEvents(data)
     } catch (error) {
       console.error("イベント取得エラー:", error)
       // 認証エラーの場合はパブリックAPIにフォールバック
       try {
-        const publicData = await apiClient.getPublicEvents()
+        const publicData = await userApiClient.getPublicEvents()
         setEvents(publicData)
       } catch (publicError) {
         console.error("パブリックイベント取得エラー:", publicError)

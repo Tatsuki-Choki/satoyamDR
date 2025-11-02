@@ -5,7 +5,7 @@ import { Camera, X, CheckCircle, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { toast } from "sonner"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 
 interface QRCodeScannerProps {
   isOpen: boolean
@@ -82,7 +82,7 @@ export function QRCodeScanner({ isOpen, onClose, selectedDogs, onScanSuccess }: 
       }
 
       // バックエンドでQRコードスキャンと入場処理を同時実行
-      const result = await apiClient.scanQRCode(parsedData)
+      const result = await userApiClient.scanQRCode(parsedData)
       
       toast.success("入場処理が完了しました")
       onScanSuccess()

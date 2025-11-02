@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react"
-import { apiClient } from "@/lib/api"
+import { adminApiClient } from "@/lib/api/admin-api"
 
 interface AuthContextType {
   isAuthenticated: boolean
@@ -27,8 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string): Promise<boolean> => {
     try {
-      // apiClient.adminLoginを使用してAPIを呼び出し、トークンを保存
-      const response = await apiClient.adminLogin({ email, password })
+      // adminApiClient.adminLoginを使用してAPIを呼び出し、トークンを保存
+      const response = await adminApiClient.adminLogin({ email, password })
       
       if (response.access_token) {
         setIsAuthenticated(true)

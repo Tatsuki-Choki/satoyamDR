@@ -14,7 +14,6 @@ import { termsOfUseText, UserStatus, ImabariResidency } from "@/lib/constants"
 import type { DogProfile } from "@/lib/types"
 import { useState, useMemo, useCallback, FormEvent } from "react"
 import { X } from "lucide-react"
-import { apiClient } from "@/lib/api"
 import { toast } from "sonner"
 
 const dogBreeds = [
@@ -212,7 +211,9 @@ export function HomeSection({
           alert("郵便番号が見つかりません。住所を手動で入力してください。")
         }
       } catch (error) {
-        console.error("郵便番号検索エラー:", error)
+        if (process.env.NODE_ENV === 'development') {
+          console.error("郵便番号検索エラー:", error)
+        }
         alert("郵便番号検索中にエラーが発生しました。住所を手動で入力してください。")
       }
     }
@@ -220,7 +221,9 @@ export function HomeSection({
 
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log("フォーム送信開始");
+    if (process.env.NODE_ENV === 'development') {
+      console.log("フォーム送信開始");
+    }
     
     // FormDataオブジェクトを作成
     const formData = new FormData();
@@ -250,7 +253,9 @@ export function HomeSection({
     }
 
     // 親コンポーネントの送信ハンドラを呼び出す
-    console.log("handleRegistrationSubmit呼び出し開始", formData);
+    if (process.env.NODE_ENV === 'development') {
+      console.log("handleRegistrationSubmit呼び出し開始", formData);
+    }
     handleRegistrationSubmit(formData);
   }
 
@@ -327,11 +332,11 @@ export function HomeSection({
           </div>
 
           {/* 利用申請が必要セクション - ログイン前のみ表示（ログインフォーム・利用申請フォーム表示中は非表示） */}
-          {userStatus !== (UserStatus as any).LoggedIn && 
-           userStatus !== (UserStatus as any).LoginForm && 
-           userStatus !== (UserStatus as any).ForgotPasswordForm && 
-           userStatus !== (UserStatus as any).ForgotPasswordSent &&
-           userStatus !== (UserStatus as any).RegistrationForm && (
+          {userStatus !== UserStatus.LoggedIn && 
+           userStatus !== UserStatus.LoginForm && 
+           userStatus !== UserStatus.ForgotPasswordForm && 
+           userStatus !== UserStatus.ForgotPasswordSent &&
+           userStatus !== UserStatus.RegistrationForm && (
             <Card className="border-gray-200 bg-gray-50">
               <CardContent className="p-6 text-center">
                 <h3 className="text-lg font-medium text-blue-900 mb-3">
@@ -342,14 +347,14 @@ export function HomeSection({
                 </p>
                 <div className="space-y-3">
                   <Button 
-                    onClick={() => setUserStatus((UserStatus as any).RegistrationForm)}
+                    onClick={() => setUserStatus(UserStatus.RegistrationForm)}
                     className="w-full bg-blue-900 hover:bg-blue-800 text-white"
                   >
                     利用申請をする
                   </Button>
                   <div className="flex space-x-3">
                     <Button 
-                      onClick={() => setUserStatus((UserStatus as any).LoginForm)}
+                      onClick={() => setUserStatus(UserStatus.LoginForm)}
                       variant="outline" 
                       className="flex-1 border-blue-900 text-blue-900 hover:bg-blue-50"
                     >
@@ -727,7 +732,6 @@ export function HomeSection({
                     <Button
                       type="submit"
                       className="w-full font-caption"
-                      onClick={() => console.log("Button clicked directly!")}
                       disabled={!isFormValid}
                     >
                       利用申請
@@ -760,14 +764,14 @@ export function HomeSection({
             </div>
           )}
 
-          {userStatus === (UserStatus as any).LoggedIn && (
+          {userStatus === UserStatus.LoggedIn && (
             <div className="space-y-4">
               <Button onClick={handleLogout} className="w-full font-caption">
                 ログアウト
               </Button>
               <Button 
                 onClick={() => window.open('/admin', '_blank')}
-                variant="outline" 
+                variant="outline"
                 className="w-full font-caption border-gray-400 text-gray-600 hover:bg-gray-50"
               >
                 管理者ログイン
@@ -775,7 +779,7 @@ export function HomeSection({
             </div>
           )}
 
-          {userStatus === (UserStatus as any).LoginForm && (
+          {userStatus === UserStatus.LoginForm && (
             <div className="space-y-6 mt-6">
               <Card className="border-asics-blue-100">
                 <CardContent className="p-4">
@@ -809,7 +813,7 @@ export function HomeSection({
                     </Button>
                     <Button
                       type="button"
-                      onClick={() => setUserStatus((UserStatus as any).ForgotPasswordForm)}
+                      onClick={() => setUserStatus(UserStatus.ForgotPasswordForm)}
                       variant="link"
                       className="w-full font-caption"
                     >
@@ -826,7 +830,7 @@ export function HomeSection({
             </div>
           )}
 
-          {userStatus === (UserStatus as any).ForgotPasswordForm && (
+          {userStatus === UserStatus.ForgotPasswordForm && (
             <div className="space-y-6 mt-6">
               <h2 className="text-lg font-heading mb-4" style={{ color: "rgb(0, 8, 148)" }}>
                 パスワードをリセット
@@ -851,7 +855,7 @@ export function HomeSection({
                     </Button>
                     <Button
                       type="button"
-                      onClick={() => setUserStatus((UserStatus as any).LoginForm)}
+                      onClick={() => setUserStatus(UserStatus.LoginForm)}
                       variant="link"
                       className="w-full font-caption"
                     >
@@ -863,7 +867,7 @@ export function HomeSection({
             </div>
           )}
 
-          {userStatus === (UserStatus as any).ForgotPasswordSent && (
+          {userStatus === UserStatus.ForgotPasswordSent && (
             <div className="space-y-4">
               <h2 className="text-lg font-heading mb-4" style={{ color: "rgb(0, 8, 148)" }}>
                 パスワードリセット

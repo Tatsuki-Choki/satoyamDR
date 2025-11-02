@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { UserStatus } from "@/lib/constants"
 import type { DogProfile } from "@/lib/types"
 import { EntryManagement } from "@/components/entry-management"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 
 interface EntrySectionProps {
   userStatus: UserStatus
@@ -42,7 +42,7 @@ export function EntrySection({
 
   const fetchUserDogs = async () => {
     try {
-      const dogs = await apiClient.getUserDogs()
+      const dogs = await userApiClient.getUserDogs()
       setUserDogs(dogs)
     } catch (error) {
       console.error("犬情報取得エラー:", error)

@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 import { QRScannerSimple } from "@/components/qr-scanner-simple"
 
 interface EntryManagementProps {
@@ -36,11 +36,11 @@ export function EntryManagement({ userDogs }: EntryManagementProps) {
   const fetchCurrentStatus = async () => {
     try {
       // 現在の在場者情報を取得
-      const visitors = await apiClient.getCurrentVisitors()
+      const visitors = await userApiClient.getCurrentVisitors()
       setCurrentVisitors(visitors)
       
       // 自分の履歴から現在の状態を判定
-      const history = await apiClient.getEntryHistory(1)
+      const history = await userApiClient.getEntryHistory(1)
       if (history.length > 0 && history[0].action === "entry") {
         setIsInPark(true)
       }
@@ -51,7 +51,7 @@ export function EntryManagement({ userDogs }: EntryManagementProps) {
 
   const fetchEntryHistory = async () => {
     try {
-      const history = await apiClient.getEntryHistory(10)
+      const history = await userApiClient.getEntryHistory(10)
       setEntryHistory(history)
     } catch (error) {
       console.error("履歴取得エラー:", error)
@@ -66,7 +66,7 @@ export function EntryManagement({ userDogs }: EntryManagementProps) {
 
     setLoading(true)
     try {
-      const result = await apiClient.enterDogRun(selectedDogs)
+      const result = await userApiClient.enterDogRun(selectedDogs)
       toast.success("入場処理が完了しました")
       setIsInPark(true)
       setSelectedDogs([])

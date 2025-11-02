@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, type FormEvent, useCallback, useMemo, useEffect } from "react"
+import { useState, type FormEvent, useCallback, useMemo, useEffect, Suspense } from "react"
+import dynamic from "next/dynamic"
 import { MapPin, Bell, Home, MessageCircle, QrCode, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
@@ -11,18 +12,19 @@ import { FeedSection } from "@/components/feed-section"
 import { EntrySection } from "@/components/entry-section"
 import { ProfileSection } from "@/components/profile-section"
 
-import { NoticesModal } from "@/components/modals/notices-modal"
-import { CreatePostModal } from "@/components/modals/create-post-modal"
-import { CommentModal } from "@/components/modals/comment-modal"
-import { AddDogRegistrationModal } from "@/components/modals/add-dog-registration-modal"
-import { EditDogModal } from "@/components/modals/edit-dog-modal"
-import { EditOwnerModal } from "@/components/modals/edit-owner-modal"
-import { ApplicationStatusModal } from "@/components/application-status-modal"
+// モーダルを遅延読み込み（パフォーマンス最適化）
+const NoticesModal = dynamic(() => import("@/components/modals/notices-modal").then(mod => ({ default: mod.NoticesModal })), { ssr: false })
+const CreatePostModal = dynamic(() => import("@/components/modals/create-post-modal").then(mod => ({ default: mod.CreatePostModal })), { ssr: false })
+const CommentModal = dynamic(() => import("@/components/modals/comment-modal").then(mod => ({ default: mod.CommentModal })), { ssr: false })
+const AddDogRegistrationModal = dynamic(() => import("@/components/modals/add-dog-registration-modal").then(mod => ({ default: mod.AddDogRegistrationModal })), { ssr: false })
+const EditDogModal = dynamic(() => import("@/components/modals/edit-dog-modal").then(mod => ({ default: mod.EditDogModal })), { ssr: false })
+const EditOwnerModal = dynamic(() => import("@/components/modals/edit-owner-modal").then(mod => ({ default: mod.EditOwnerModal })), { ssr: false })
+const ApplicationStatusModal = dynamic(() => import("@/components/application-status-modal").then(mod => ({ default: mod.ApplicationStatusModal })), { ssr: false })
 
 import { currentUsers, initialRecentPosts, initialNotices, initialOwnerProfile, notices, posts, upcomingEvents } from "@/lib/data"
 import { registeredEmail, UserStatus, ActiveTab, NewDogRegistrationStatus, CalendarType } from "@/lib/constants"
 import type { DogProfile, Post, Notice, OwnerProfile } from "@/lib/types"
-import { RegisterRequest, apiClient, ApplicationRequest } from "@/lib/api"
+import { RegisterRequest, userApiClient, ApplicationRequest } from "@/lib/api/user-api"
 
 // Temporary owner profile for demo purposes
 const tempInitialOwnerProfile: OwnerProfile = {
@@ -125,9 +127,13 @@ export default function DogrunsApp() {
       formData: FormData
     ) => {
       try {
-        console.log("申請データ送信中:", formData)
-        const response = await apiClient.applyRegistration(formData)
-        console.log("API呼び出し成功:", response)
+        if (process.env.NODE_ENV === 'development') {
+          console.log("申請データ送信中:", formData)
+        }
+        const response = await userApiClient.applyRegistration(formData)
+        if (process.env.NODE_ENV === 'development') {
+          console.log("API呼び出し成功:", response)
+        }
 
         localStorage.setItem('application_id', response.application_id)
         
@@ -138,10 +144,13 @@ export default function DogrunsApp() {
         toast.success("利用申請が送信されました", {
           description: `申請ID: ${response.application_id}\n管理者の承認をお待ちください。`,
         })
-      } catch (error: any) {
-        console.error("申請エラー:", error)
+      } catch (error: unknown) {
+        const apiError = error as { response?: { data?: { detail?: string } } }
+        if (process.env.NODE_ENV === 'development') {
+          console.error("申請エラー:", error)
+        }
         toast.error("申請の送信に失敗しました", {
-          description: error.response?.data?.detail || "エラーが発生しました。もう一度お試しください。",
+          description: apiError.response?.data?.detail || "エラーが発生しました。もう一度お試しください。",
         })
       }
     },
@@ -161,23 +170,30 @@ export default function DogrunsApp() {
       }
 
       try {
-        const response = await apiClient.login({ email, password })
+        const response = await userApiClient.login({ email, password })
         
-        // トークンは apiClient.login 内で自動的に localStorage に保存される
+        // トークンは userApiClient.login 内で自動的に localStorage に保存される
         setUserStatus(UserStatus.LoggedIn)
         setLoginError("")
         toast.success("ログインしました")
         
         // ユーザー情報を取得
         try {
-          const userInfo = await apiClient.getCurrentUser()
-          console.log("ログインユーザー情報:", userInfo)
+          const userInfo = await userApiClient.getCurrentUser()
+          if (process.env.NODE_ENV === 'development') {
+            console.log("ログインユーザー情報:", userInfo)
+          }
         } catch (error) {
-          console.error("ユーザー情報取得エラー:", error)
+          if (process.env.NODE_ENV === 'development') {
+            console.error("ユーザー情報取得エラー:", error)
+          }
         }
-      } catch (error: any) {
-        console.error("ログインエラー:", error)
-        if (error.response?.status === 401) {
+      } catch (error: unknown) {
+        const apiError = error as { response?: { status?: number } }
+        if (process.env.NODE_ENV === 'development') {
+          console.error("ログインエラー:", error)
+        }
+        if (apiError.response?.status === 401) {
           setLoginError("メールアドレスまたはパスワードが正しくありません。")
         } else {
           setLoginError("ログインに失敗しました。もう一度お試しください。")
@@ -196,7 +212,7 @@ export default function DogrunsApp() {
   )
 
   const handleLogout = useCallback(() => {
-    apiClient.logout() // localStorage からトークンを削除
+    userApiClient.logout() // localStorage からトークンを削除
     setUserStatus(UserStatus.Initial) // Change to UserStatus.Initial to simulate logout
     setActiveTab(ActiveTab.Home)
     toast.success("ログアウトしました")
@@ -204,7 +220,7 @@ export default function DogrunsApp() {
 
   const handleDemoLogin = useCallback(async () => {
     try {
-      const response = await apiClient.login({
+      const response = await userApiClient.login({
         email: 'demo@example.com',
         password: 'demo123'
       })
@@ -215,7 +231,9 @@ export default function DogrunsApp() {
         toast.success("デモアカウントでログインしました")
       }
     } catch (error) {
-      console.error("Demo login failed:", error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error("Demo login failed:", error)
+      }
       toast.error("デモログインに失敗しました")
     }
   }, [setUserStatus, setLoginError])
@@ -487,7 +505,7 @@ export default function DogrunsApp() {
       </div>
 
       {/* Content */}
-      <div className="px-4 py-6 pb-20">
+      <div className="px-4 py-6 pb-20 relative z-0">
         {activeTab === ActiveTab.Home && (
           <HomeSection
             userStatus={userStatus}
@@ -691,7 +709,7 @@ export default function DogrunsApp() {
       />
 
       {/* Bottom Navigation - アシックス里山スタジアムスタイル */}
-      <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t-2 border-asics-satoyama-blue/20 shadow-2xl">
+      <div className="fixed bottom-0 left-1/2 transform -translate-x-1/2 w-full max-w-md bg-white border-t-2 border-asics-satoyama-blue/20 shadow-2xl z-50">
         <div className="flex justify-around py-3">
           <Button
             variant={activeTab === ActiveTab.Home ? "default" : "ghost"}

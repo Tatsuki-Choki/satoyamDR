@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 
 interface QRCodeDisplayProps {
   isOpen: boolean
@@ -46,7 +46,7 @@ export function QRCodeDisplay({ isOpen, onClose, selectedDogs = [] }: QRCodeDisp
   const generateQRCode = async () => {
     setLoading(true)
     try {
-      const data = await apiClient.generateQRCode(selectedDogs)
+      const data = await userApiClient.generateQRCode()
       setQrCode(data.qr_code)
       setExpiresAt(new Date(data.expires_at))
     } catch (error) {

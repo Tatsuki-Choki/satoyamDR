@@ -14,7 +14,7 @@ import {
   Phone,
   Mail
 } from "lucide-react"
-import { apiClient } from "@/lib/api"
+import { adminApiClient } from "@/lib/api/admin-api"
 import { toast } from "sonner"
 
 export default function ApplicationsManagement() {
@@ -31,7 +31,7 @@ export default function ApplicationsManagement() {
     setIsLoading(true)
     try {
       console.log("Fetching applications...")
-      const response = await apiClient.getAdminApplications()
+      const response = await adminApiClient.getAdminApplications()
       console.log("Applications response:", response)
       setApplications(Array.isArray(response) ? response : response.applications || [])
       setError(null)
@@ -46,7 +46,7 @@ export default function ApplicationsManagement() {
 
   const handleApprove = async (applicationId: string) => {
     try {
-      await apiClient.approveApplication(applicationId, "承認")
+      await adminApiClient.approveApplication(applicationId, "承認")
       toast.success("申請を承認しました")
       fetchApplications()
     } catch (error: any) {
@@ -57,7 +57,7 @@ export default function ApplicationsManagement() {
 
   const handleReject = async (applicationId: string) => {
     try {
-      await apiClient.rejectApplication(applicationId, "却下")
+      await adminApiClient.rejectApplication(applicationId, "却下")
       toast.success("申請を却下しました")
       fetchApplications()
     } catch (error: any) {

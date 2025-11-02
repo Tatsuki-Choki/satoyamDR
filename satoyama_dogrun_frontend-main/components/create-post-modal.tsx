@@ -1,13 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { X, Image, Hash } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 
 interface CreatePostModalProps {
   isOpen: boolean
@@ -15,16 +15,56 @@ interface CreatePostModalProps {
   onPostCreated: () => void
 }
 
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024 // 5MB
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+
 export function CreatePostModal({ isOpen, onClose, onPostCreated }: CreatePostModalProps) {
   const [content, setContent] = useState("")
   const [hashtags, setHashtags] = useState("")
   const [selectedImages, setSelectedImages] = useState<File[]>([])
+  const [imageUrls, setImageUrls] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // メモリリーク防止：URL.createObjectURLの解放
+  useEffect(() => {
+    const urls = selectedImages.map(file => URL.createObjectURL(file))
+    setImageUrls(urls)
+    
+    return () => {
+      urls.forEach(url => URL.revokeObjectURL(url))
+    }
+  }, [selectedImages])
+
+  // モーダルが閉じられた時にURLを解放
+  useEffect(() => {
+    if (!isOpen) {
+      imageUrls.forEach(url => URL.revokeObjectURL(url))
+      setImageUrls([])
+      setSelectedImages([])
+      setContent("")
+      setHashtags("")
+    }
+  }, [isOpen])
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files).slice(0, 4) // 最大4枚まで
-      setSelectedImages(files)
+      
+      // 画像サイズと形式のバリデーション
+      const validFiles: File[] = []
+      for (const file of files) {
+        if (file.size > MAX_IMAGE_SIZE) {
+          toast.error(`${file.name}は5MB以下にしてください`)
+          continue
+        }
+        if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+          toast.error(`${file.name}はJPEG、PNG、WebP形式のみ対応しています`)
+          continue
+        }
+        validFiles.push(file)
+      }
+      
+      setSelectedImages(validFiles)
     }
   }
 
@@ -47,12 +87,12 @@ export function CreatePostModal({ isOpen, onClose, onPostCreated }: CreatePostMo
         formData.append("images", image)
       })
 
-      // APIクライアントを使用して投稿を作成
-      await apiClient.createPost({
+      // APIクライアントを使用して投稿を作成（複数画像対応）
+      await userApiClient.createPost({
         content,
         category: "general",
         hashtags: hashtags.trim(),
-        image: selectedImages[0] // 暫定的に最初の画像のみ
+        images: selectedImages.length > 0 ? selectedImages : undefined, // 複数画像を送信
       })
 
       toast.success("投稿を作成しました")
@@ -64,7 +104,9 @@ export function CreatePostModal({ isOpen, onClose, onPostCreated }: CreatePostMo
       setHashtags("")
       setSelectedImages([])
     } catch (error) {
-      console.error("投稿作成エラー:", error)
+      if (process.env.NODE_ENV === 'development') {
+        console.error("投稿作成エラー:", error)
+      }
       toast.error("投稿の作成に失敗しました")
     } finally {
       setIsSubmitting(false)
@@ -138,7 +180,7 @@ export function CreatePostModal({ isOpen, onClose, onPostCreated }: CreatePostMo
                   {selectedImages.map((file, index) => (
                     <div key={index} className="relative">
                       <img
-                        src={URL.createObjectURL(file)}
+                        src={imageUrls[index] || ''}
                         alt={`選択画像 ${index + 1}`}
                         className="w-20 h-20 object-cover rounded"
                       />

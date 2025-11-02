@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertCircle, CheckCircle, Clock, XCircle } from "lucide-react"
-import { apiClient, ApplicationStatusResponse } from "@/lib/api"
+import { userApiClient, ApplicationStatusResponse } from "@/lib/api/user-api"
 import { toast } from "sonner"
 
 interface ApplicationStatusModalProps {
@@ -39,7 +39,7 @@ export function ApplicationStatusModal({ isOpen, onClose, applicationId }: Appli
 
     setLoading(true)
     try {
-      const response = await apiClient.getApplicationStatus(applicationId)
+      const response = await userApiClient.getApplicationStatus(applicationId)
       setStatus(response)
     } catch (error: any) {
       console.error("申請状況取得エラー:", error)

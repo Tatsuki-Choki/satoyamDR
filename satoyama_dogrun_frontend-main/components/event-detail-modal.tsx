@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale"
-import { apiClient } from "@/lib/api"
+import { userApiClient } from "@/lib/api/user-api"
 
 interface EventDetailModalProps {
   eventId: string | null
@@ -62,12 +62,12 @@ export function EventDetailModal({ eventId, isOpen, onClose, onRegistrationChang
     
     setLoading(true)
     try {
-      const data = await apiClient.getEventDetail(eventId)
+      const data = await userApiClient.getEventDetail(eventId)
       setEvent(data)
       setSelectedDogs(data.my_dogs_registered || [])
       
       // 参加者一覧も取得
-      const participantsData = await apiClient.getEventParticipants(eventId)
+      const participantsData = await userApiClient.getEventParticipants(eventId)
       setParticipants(participantsData)
     } catch (error) {
       console.error("イベント詳細取得エラー:", error)
@@ -79,7 +79,7 @@ export function EventDetailModal({ eventId, isOpen, onClose, onRegistrationChang
 
   const fetchUserDogs = async () => {
     try {
-      const dogs = await apiClient.getUserDogs()
+      const dogs = await userApiClient.getUserDogs()
       setUserDogs(dogs)
     } catch (error) {
       console.error("犬情報取得エラー:", error)
@@ -93,11 +93,11 @@ export function EventDetailModal({ eventId, isOpen, onClose, onRegistrationChang
     try {
       if (event.is_registered) {
         // キャンセル
-        await apiClient.cancelEventRegistration(event.id)
+        await userApiClient.cancelEventRegistration(event.id)
         toast.success("参加をキャンセルしました")
       } else {
         // 登録
-        await apiClient.registerForEvent(event.id, selectedDogs)
+        await userApiClient.registerForEvent(event.id, selectedDogs)
         toast.success("イベントに参加登録しました")
       }
       
