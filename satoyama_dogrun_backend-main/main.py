@@ -123,39 +123,46 @@ async def admin_login(
     db=Depends(get_db)
 ):
     """管理者ログイン"""
-    admin_user = db.query(AdminUser).filter(
-        AdminUser.email == request.email,
-        AdminUser.is_active == True
-    ).first()
-    
-    if not admin_user or not verify_password(request.password, admin_user.password_hash):
+    try:
+        admin_user = db.query(AdminUser).filter(
+            AdminUser.email == request.email,
+            AdminUser.is_active == True
+        ).first()
+        
+        if not admin_user or not verify_password(request.password, admin_user.password_hash):
+            raise AuthenticationError("メールアドレスまたはパスワードが正しくありません")
+        
+        # 最終ログイン時刻を更新
+        admin_user.last_login = datetime.utcnow()
+        db.commit()
+        
+        # 管理者用アクセストークンを作成
+        access_token = create_admin_access_token(data={"sub": admin_user.email})
+        
+        return AdminLoginResponse(
+            access_token=access_token,
+            token_type="bearer",
+            admin_user=AdminUserResponse(
+                id=admin_user.id,
+                email=admin_user.email,
+                last_name=admin_user.last_name,
+                first_name=admin_user.first_name,
+                role=admin_user.role,
+                is_active=admin_user.is_active,
+                last_login=admin_user.last_login,
+                created_at=admin_user.created_at,
+                updated_at=admin_user.updated_at
+            )
+        )
+    except SatoyamaDogrunException as e:
+        db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="メールアドレスまたはパスワードが正しくありません"
+            status_code=e.status_code,
+            detail=e.message
         )
-    
-    # 最終ログイン時刻を更新
-    admin_user.last_login = datetime.utcnow()
-    db.commit()
-    
-    # 管理者用アクセストークンを作成
-    access_token = create_admin_access_token(data={"sub": admin_user.email})
-    
-    return AdminLoginResponse(
-        access_token=access_token,
-        token_type="bearer",
-        admin_user=AdminUserResponse(
-            id=admin_user.id,
-            email=admin_user.email,
-            last_name=admin_user.last_name,
-            first_name=admin_user.first_name,
-            role=admin_user.role,
-            is_active=admin_user.is_active,
-            last_login=admin_user.last_login,
-            created_at=admin_user.created_at,
-            updated_at=admin_user.updated_at
-        )
-    )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"管理者ログイン処理中にエラーが発生しました: {str(e)}")
 
 @app.get("/admin/auth/me", response_model=AdminUserResponse)
 async def get_current_admin_info(
@@ -283,33 +290,41 @@ async def get_application(
     db=Depends(get_db)
 ):
     """申請詳細取得"""
-    application = db.query(Application).filter(Application.id == application_id).first()
-    if not application:
-        raise HTTPException(status_code=404, detail="申請が見つかりません")
-    
-    user = db.query(DbUser).filter(DbUser.id == application.user_id).first()
-    user_name = f"{user.last_name} {user.first_name}" if user else "不明"
-    
-    return ApplicationResponse(
-        id=application.id,
-        user_id=application.user_id,
-        user_name=user_name,
-        user_email=user.email if user else "",
-        user_phone=user.phone_number if user else "",
-        dog_name=application.dog_name,
-        dog_breed=application.dog_breed,
-        dog_weight=application.dog_weight,
-        vaccine_certificate=application.vaccine_certificate,
-        request_date=application.request_date,
-        request_time=application.request_time,
-        status=application.status,
-        admin_notes=application.admin_notes,
-        approved_by=application.approved_by,
-        approved_at=application.approved_at,
-        rejection_reason=application.rejection_reason,
-        created_at=application.created_at,
-        updated_at=application.updated_at
-    )
+    try:
+        application = db.query(Application).filter(Application.id == application_id).first()
+        if not application:
+            raise NotFoundError("申請", application_id)
+        
+        user = db.query(DbUser).filter(DbUser.id == application.user_id).first()
+        user_name = f"{user.last_name} {user.first_name}" if user else "不明"
+        
+        return ApplicationResponse(
+            id=application.id,
+            user_id=application.user_id,
+            user_name=user_name,
+            user_email=user.email if user else "",
+            user_phone=user.phone_number if user else "",
+            dog_name=application.dog_name,
+            dog_breed=application.dog_breed,
+            dog_weight=application.dog_weight,
+            vaccine_certificate=application.vaccine_certificate,
+            request_date=application.request_date,
+            request_time=application.request_time,
+            status=application.status,
+            admin_notes=application.admin_notes,
+            approved_by=application.approved_by,
+            approved_at=application.approved_at,
+            rejection_reason=application.rejection_reason,
+            created_at=application.created_at,
+            updated_at=application.updated_at
+        )
+    except SatoyamaDogrunException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"申請詳細取得中にエラーが発生しました: {str(e)}")
 
 @app.put("/admin/applications/{application_id}/approve")
 async def approve_application(
@@ -324,23 +339,23 @@ async def approve_application(
     try:
         application = db.query(Application).filter(Application.id == application_id).first()
         if not application:
-            raise HTTPException(status_code=404, detail="申請が見つかりません")
+            raise NotFoundError("申請", application_id)
         
         # 既に承認済みの場合はエラー
         if application.status == ApplicationStatus.approved:
-            raise HTTPException(status_code=400, detail="この申請は既に承認されています")
+            raise ConflictError("この申請は既に承認されています")
         
         # 新規申請の場合（user_idがNULL）、ユーザーを作成
         if application.user_id is None and application.user_email:
             # メールアドレスの重複チェック
             existing_user = db.query(DbUser).filter(DbUser.email == application.user_email).first()
             if existing_user:
-                raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています")
+                raise ConflictError("このメールアドレスは既に登録されています")
             
             # ユーザー作成（申請時に保存したハッシュ値を使用）
             # セキュリティ: 申請時にハッシュ化されたパスワードを使用
             if not application.user_password_hash:
-                raise HTTPException(status_code=400, detail="申請データにパスワードハッシュが存在しません")
+                raise ValidationError("申請データにパスワードハッシュが存在しません")
             
             new_user = DbUser(
                 id=str(uuid4()),
@@ -393,9 +408,12 @@ async def approve_application(
         )
         
         return {"message": "申請を承認し、ユーザーを作成しました"}
-    except HTTPException:
+    except SatoyamaDogrunException as e:
         db.rollback()
-        raise
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"申請承認処理中にエラーが発生しました: {str(e)}")
@@ -506,30 +524,38 @@ async def get_user_detail(
     db=Depends(get_db)
 ):
     """ユーザー詳細取得"""
-    user = db.query(DbUser).filter(DbUser.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    
-    # 関連データのカウント
-    dogs_count = db.query(DbDog).filter(DbDog.owner_id == user_id).count()
-    posts_count = db.query(DbPost).filter(DbPost.user_id == user_id).count()
-    
-    return UserDetailResponse(
-        id=user.id,
-        email=user.email,
-        last_name=user.last_name,
-        first_name=user.first_name,
-        address=user.address,
-        phone_number=user.phone_number,
-        prefecture=user.prefecture,
-        city=user.city,
-        is_active=True,  # TODO: 実際のフィールドから取得
-        is_suspended=False,  # TODO: 実際のフィールドから取得
-        dogs_count=dogs_count,
-        posts_count=posts_count,
-        created_at=user.created_at,
-        updated_at=user.updated_at
-    )
+    try:
+        user = db.query(DbUser).filter(DbUser.id == user_id).first()
+        if not user:
+            raise NotFoundError("ユーザー", user_id)
+        
+        # 関連データのカウント
+        dogs_count = db.query(DbDog).filter(DbDog.owner_id == user_id).count()
+        posts_count = db.query(DbPost).filter(DbPost.user_id == user_id).count()
+        
+        return UserDetailResponse(
+            id=user.id,
+            email=user.email,
+            last_name=user.last_name,
+            first_name=user.first_name,
+            address=user.address,
+            phone_number=user.phone_number,
+            prefecture=user.prefecture,
+            city=user.city,
+            is_active=True,  # TODO: 実際のフィールドから取得
+            is_suspended=False,  # TODO: 実際のフィールドから取得
+            dogs_count=dogs_count,
+            posts_count=posts_count,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+    except SatoyamaDogrunException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ユーザー詳細取得中にエラーが発生しました: {str(e)}")
 
 @app.put("/admin/users/{user_id}")
 async def update_user(
@@ -539,37 +565,47 @@ async def update_user(
     db=Depends(get_db)
 ):
     """ユーザー情報更新"""
-    user = db.query(DbUser).filter(DbUser.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    
-    if request.last_name is not None:
-        user.last_name = request.last_name
-    if request.first_name is not None:
-        user.first_name = request.first_name
-    if request.address is not None:
-        user.address = request.address
-    if request.phone_number is not None:
-        user.phone_number = request.phone_number
-    if request.prefecture is not None:
-        user.prefecture = request.prefecture
-    if request.city is not None:
-        user.city = request.city
-    
-    user.updated_at = datetime.utcnow()
-    db.commit()
-    
-    # 管理者ログを記録
-    await log_admin_action(
-        admin_user_id=current_admin.id,
-        action="user_updated",
-        target_type="user",
-        target_id=user_id,
-        details=f"ユーザー情報を更新: {user.email}",
-        db=db
-    )
-    
-    return {"message": "ユーザー情報を更新しました"}
+    try:
+        user = db.query(DbUser).filter(DbUser.id == user_id).first()
+        if not user:
+            raise NotFoundError("ユーザー", user_id)
+        
+        if request.last_name is not None:
+            user.last_name = request.last_name
+        if request.first_name is not None:
+            user.first_name = request.first_name
+        if request.address is not None:
+            user.address = request.address
+        if request.phone_number is not None:
+            user.phone_number = request.phone_number
+        if request.prefecture is not None:
+            user.prefecture = request.prefecture
+        if request.city is not None:
+            user.city = request.city
+        
+        user.updated_at = datetime.utcnow()
+        db.commit()
+        
+        # 管理者ログを記録
+        await log_admin_action(
+            admin_user_id=current_admin.id,
+            action="user_updated",
+            target_type="user",
+            target_id=user_id,
+            details=f"ユーザー情報を更新: {user.email}",
+            db=db
+        )
+        
+        return {"message": "ユーザー情報を更新しました"}
+    except SatoyamaDogrunException as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"ユーザー情報更新中にエラーが発生しました: {str(e)}")
 
 @app.delete("/admin/users/{user_id}")
 async def delete_user(
@@ -578,33 +614,43 @@ async def delete_user(
     db=Depends(get_db)
 ):
     """ユーザー削除（論理削除）"""
-    user = db.query(DbUser).filter(DbUser.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    
-    # 関連データの確認
-    dogs_count = db.query(DbDog).filter(DbDog.owner_id == user_id).count()
-    posts_count = db.query(DbPost).filter(DbPost.user_id == user_id).count()
-    
-    if dogs_count > 0 or posts_count > 0:
-        # 物理削除ではなく論理削除を推奨
-        return {"message": f"このユーザーには関連データがあります（犬: {dogs_count}件、投稿: {posts_count}件）。削除する前に確認してください。"}
-    
-    # 物理削除
-    db.delete(user)
-    db.commit()
-    
-    # 管理者ログを記録
-    await log_admin_action(
-        admin_user_id=current_admin.id,
-        action="user_deleted",
-        target_type="user",
-        target_id=user_id,
-        details=f"ユーザーを削除: {user.email}",
-        db=db
-    )
-    
-    return {"message": "ユーザーを削除しました"}
+    try:
+        user = db.query(DbUser).filter(DbUser.id == user_id).first()
+        if not user:
+            raise NotFoundError("ユーザー", user_id)
+        
+        # 関連データの確認
+        dogs_count = db.query(DbDog).filter(DbDog.owner_id == user_id).count()
+        posts_count = db.query(DbPost).filter(DbPost.user_id == user_id).count()
+        
+        if dogs_count > 0 or posts_count > 0:
+            # 物理削除ではなく論理削除を推奨
+            return {"message": f"このユーザーには関連データがあります（犬: {dogs_count}件、投稿: {posts_count}件）。削除する前に確認してください。"}
+        
+        # 物理削除
+        db.delete(user)
+        db.commit()
+        
+        # 管理者ログを記録
+        await log_admin_action(
+            admin_user_id=current_admin.id,
+            action="user_deleted",
+            target_type="user",
+            target_id=user_id,
+            details=f"ユーザーを削除: {user.email}",
+            db=db
+        )
+        
+        return {"message": "ユーザーを削除しました"}
+    except SatoyamaDogrunException as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"ユーザー削除処理中にエラーが発生しました: {str(e)}")
 
 @app.put("/admin/users/{user_id}/suspend")
 async def suspend_user(
@@ -614,26 +660,36 @@ async def suspend_user(
     db=Depends(get_db)
 ):
     """ユーザー一時停止"""
-    user = db.query(DbUser).filter(DbUser.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    
-    # TODO: is_suspendedフィールドをUserテーブルに追加して実装
-    # user.is_suspended = True
-    # user.suspend_reason = request.reason
-    # user.suspend_until = request.suspend_until
-    
-    # 管理者ログを記録
-    await log_admin_action(
-        admin_user_id=current_admin.id,
-        action="user_suspended",
-        target_type="user",
-        target_id=user_id,
-        details=f"ユーザーを一時停止: {request.reason}",
-        db=db
-    )
-    
-    return {"message": "ユーザーを一時停止しました"}
+    try:
+        user = db.query(DbUser).filter(DbUser.id == user_id).first()
+        if not user:
+            raise NotFoundError("ユーザー", user_id)
+        
+        # TODO: is_suspendedフィールドをUserテーブルに追加して実装
+        # user.is_suspended = True
+        # user.suspend_reason = request.reason
+        # user.suspend_until = request.suspend_until
+        
+        # 管理者ログを記録
+        await log_admin_action(
+            admin_user_id=current_admin.id,
+            action="user_suspended",
+            target_type="user",
+            target_id=user_id,
+            details=f"ユーザーを一時停止: {request.reason}",
+            db=db
+        )
+        
+        return {"message": "ユーザーを一時停止しました"}
+    except SatoyamaDogrunException as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"ユーザー一時停止処理中にエラーが発生しました: {str(e)}")
 
 @app.put("/admin/users/{user_id}/activate")
 async def activate_user(
@@ -642,26 +698,36 @@ async def activate_user(
     db=Depends(get_db)
 ):
     """ユーザー有効化"""
-    user = db.query(DbUser).filter(DbUser.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    
-    # TODO: is_suspendedフィールドをUserテーブルに追加して実装
-    # user.is_suspended = False
-    # user.suspend_reason = None
-    # user.suspend_until = None
-    
-    # 管理者ログを記録
-    await log_admin_action(
-        admin_user_id=current_admin.id,
-        action="user_activated",
-        target_type="user",
-        target_id=user_id,
-        details=f"ユーザーを有効化",
-        db=db
-    )
-    
-    return {"message": "ユーザーを有効化しました"}
+    try:
+        user = db.query(DbUser).filter(DbUser.id == user_id).first()
+        if not user:
+            raise NotFoundError("ユーザー", user_id)
+        
+        # TODO: is_suspendedフィールドをUserテーブルに追加して実装
+        # user.is_suspended = False
+        # user.suspend_reason = None
+        # user.suspend_until = None
+        
+        # 管理者ログを記録
+        await log_admin_action(
+            admin_user_id=current_admin.id,
+            action="user_activated",
+            target_type="user",
+            target_id=user_id,
+            details=f"ユーザーを有効化",
+            db=db
+        )
+        
+        return {"message": "ユーザーを有効化しました"}
+    except SatoyamaDogrunException as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"ユーザー有効化処理中にエラーが発生しました: {str(e)}")
 
 @app.get("/admin/users/{user_id}/dogs", response_model=List[DogDbResponse])
 async def get_user_dogs_admin(
@@ -1460,113 +1526,149 @@ async def apply_registration(
 ):
     """新規利用申請（ユーザー登録申請）- FormData対応"""
     from uuid import uuid4
-
-    # メールアドレスの重複チェック
-    existing_user = db.query(DbUser).filter(DbUser.email == email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています")
-
-    # 既存申請の確認
-    existing_application = db.query(Application).filter(
-        Application.user_email == email,
-        Application.status == ApplicationStatus.pending
-    ).first()
-    if existing_application:
-        raise HTTPException(status_code=400, detail="このメールアドレスで申請処理中です")
-        
-    # ワクチン証明書の保存
-    file_extension = Path(vaccine_certificate.filename).suffix
-    certificate_filename = f"{uuid4()}{file_extension}"
-    certificate_path = VACCINE_CERTIFICATE_UPLOAD_DIR / certificate_filename
     
     try:
-        with certificate_path.open("wb") as buffer:
-            shutil.copyfileobj(vaccine_certificate.file, buffer)
-    finally:
-        vaccine_certificate.file.close()
-    
-    certificate_url = f"/uploads/vaccine_certificates/{certificate_filename}"
+        # メールアドレスの重複チェック
+        existing_user = db.query(DbUser).filter(DbUser.email == email).first()
+        if existing_user:
+            raise ConflictError("このメールアドレスは既に登録されています")
 
-    # 姓と名を分割
-    name_parts = fullName.split(' ', 1)
-    last_name = name_parts[0]
-    first_name = name_parts[1] if len(name_parts) > 1 else ''
-    
-    # 住所を結合
-    full_address = f"{prefecture} {city} {street} {building or ''}".strip()
+        # 既存申請の確認
+        existing_application = db.query(Application).filter(
+            Application.user_email == email,
+            Application.status == ApplicationStatus.pending
+        ).first()
+        if existing_application:
+            raise ConflictError("このメールアドレスで申請処理中です")
+            
+        # ワクチン証明書の保存
+        file_extension = Path(vaccine_certificate.filename).suffix
+        certificate_filename = f"{uuid4()}{file_extension}"
+        certificate_path = VACCINE_CERTIFICATE_UPLOAD_DIR / certificate_filename
+        
+        try:
+            with certificate_path.open("wb") as buffer:
+                shutil.copyfileobj(vaccine_certificate.file, buffer)
+        except Exception as file_error:
+            raise FileUploadError(f"ファイルのアップロードに失敗しました: {str(file_error)}")
+        finally:
+            vaccine_certificate.file.close()
+        
+        certificate_url = f"/uploads/vaccine_certificates/{certificate_filename}"
 
-    # 申請データを作成
-    # セキュリティ: パスワードはハッシュ化して保存
-    application = Application(
-        id=str(uuid4()),
-        user_id=None,
-        user_email=email,
-        user_password_hash=get_password_hash(password),  # 申請時にハッシュ化して保存
-        user_last_name=last_name,
-        user_first_name=first_name,
-        user_phone=phoneNumber,
-        user_address=full_address,
-        user_prefecture=prefecture,
-        user_city=city,
-        user_postal_code=postalCode,
-        dog_name=dogName,
-        dog_breed=dogBreed,
-        dog_weight=str(dogWeight),
-        dog_age=dogAge,
-        dog_gender=dogGender,
-        vaccine_certificate=certificate_url,
-        request_date=applicationDate,
-        status=ApplicationStatus.pending,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
-    )
+        # 姓と名を分割
+        name_parts = fullName.split(' ', 1)
+        last_name = name_parts[0]
+        first_name = name_parts[1] if len(name_parts) > 1 else ''
+        
+        # 住所を結合
+        full_address = f"{prefecture} {city} {street} {building or ''}".strip()
 
-    db.add(application)
-    db.commit()
-    db.refresh(application)
+        # 申請データを作成
+        # セキュリティ: パスワードはハッシュ化して保存
+        application = Application(
+            id=str(uuid4()),
+            user_id=None,
+            user_email=email,
+            user_password_hash=get_password_hash(password),  # 申請時にハッシュ化して保存
+            user_last_name=last_name,
+            user_first_name=first_name,
+            user_phone=phoneNumber,
+            user_address=full_address,
+            user_prefecture=prefecture,
+            user_city=city,
+            user_postal_code=postalCode,
+            dog_name=dogName,
+            dog_breed=dogBreed,
+            dog_weight=str(dogWeight),
+            dog_age=dogAge,
+            dog_gender=dogGender,
+            vaccine_certificate=certificate_url,
+            request_date=applicationDate,
+            status=ApplicationStatus.pending,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow()
+        )
 
-    return ApplicationStatusResponse(
-        application_id=application.id,
-        status=application.status.value,
-        rejection_reason=None,
-        approved_at=None,
-        created_at=application.created_at
-    )
+        db.add(application)
+        db.commit()
+        db.refresh(application)
+
+        return ApplicationStatusResponse(
+            application_id=application.id,
+            status=application.status.value,
+            rejection_reason=None,
+            approved_at=None,
+            created_at=application.created_at
+        )
+    except SatoyamaDogrunException as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"申請処理中にエラーが発生しました: {str(e)}")
 
 @app.get("/auth/application-status/{application_id}", response_model=ApplicationStatusResponse)
 async def get_application_status(application_id: str, db=Depends(get_db)):
     """申請状況の確認"""
-    application = db.query(Application).filter(Application.id == application_id).first()
-    if not application:
-        raise HTTPException(status_code=404, detail="申請が見つかりません")
-    
-    return ApplicationStatusResponse(
-        application_id=application.id,
-        status=application.status,
-        rejection_reason=application.rejection_reason,
-        approved_at=application.approved_at,
-        created_at=application.created_at
-    )
+    try:
+        application = db.query(Application).filter(Application.id == application_id).first()
+        if not application:
+            raise NotFoundError("申請", application_id)
+        
+        return ApplicationStatusResponse(
+            application_id=application.id,
+            status=application.status.value,
+            rejection_reason=application.rejection_reason,
+            approved_at=application.approved_at,
+            created_at=application.created_at
+        )
+    except SatoyamaDogrunException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"申請状況取得中にエラーが発生しました: {str(e)}")
 
 @app.post("/auth/login")
 async def login(request: LoginRequest, db=Depends(get_db)):
     """ログイン"""
-    user = db.query(DbUser).filter(DbUser.email == request.email).first()
-    if not user or not verify_password(request.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="メールアドレスまたはパスワードが正しくありません")
-    
-    access_token = create_access_token(data={"sub": user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+    try:
+        user = db.query(DbUser).filter(DbUser.email == request.email).first()
+        if not user or not verify_password(request.password, user.password_hash):
+            raise AuthenticationError("メールアドレスまたはパスワードが正しくありません")
+        
+        access_token = create_access_token(data={"sub": user.email})
+        return {"access_token": access_token, "token_type": "bearer"}
+    except SatoyamaDogrunException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ログイン処理中にエラーが発生しました: {str(e)}")
 
 @app.post("/auth/forgot-password")
 async def forgot_password(email: str, db=Depends(get_db)):
     """パスワードリセット"""
-    user = db.query(DbUser).filter(DbUser.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="ユーザーが見つかりません")
-    
-    # 実際の実装ではメール送信処理を行う
-    return {"message": "パスワードリセットメールを送信しました"}
+    try:
+        user = db.query(DbUser).filter(DbUser.email == email).first()
+        if not user:
+            raise NotFoundError("ユーザー", email)
+        
+        # 実際の実装ではメール送信処理を行う
+        return {"message": "パスワードリセットメールを送信しました"}
+    except SatoyamaDogrunException as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"パスワードリセット処理中にエラーが発生しました: {str(e)}")
 
 # ユーザー関連
 @app.get("/users/me", response_model=UserDbResponse)
