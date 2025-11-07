@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,52 +15,44 @@ import {
   Mail,
   Phone
 } from "lucide-react"
-
-// 仮のユーザーデータ
-const mockUsers = [
-  {
-    id: 1,
-    name: "田中 太郎",
-    email: "tanaka@example.com",
-    phone: "090-1234-5678",
-    status: "active",
-    registrationDate: "2024-01-15",
-    dogs: 2,
-    lastLogin: "2024-03-20"
-  },
-  {
-    id: 2,
-    name: "佐藤 花子",
-    email: "sato@example.com",
-    phone: "090-2345-6789",
-    status: "pending",
-    registrationDate: "2024-03-18",
-    dogs: 1,
-    lastLogin: "2024-03-19"
-  },
-  {
-    id: 3,
-    name: "鈴木 次郎",
-    email: "suzuki@example.com",
-    phone: "090-3456-7890",
-    status: "suspended",
-    registrationDate: "2024-02-10",
-    dogs: 0,
-    lastLogin: "2024-03-15"
-  }
-];
+import { adminApiClient } from "@/lib/api/admin-api"
+import { toast } from "sonner"
 
 export default function UsersManagement() {
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [selectedUser, setSelectedUser] = useState<any>(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
+  const [users, setUsers] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredUsers = mockUsers.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesStatus = statusFilter === "all" || user.status === statusFilter
-    return matchesSearch && matchesStatus
+  useEffect(() => {
+    fetchUsers()
+  }, [])
+
+  const fetchUsers = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const data = await adminApiClient.getUsers()
+      setUsers(Array.isArray(data) ? data : [])
+    } catch (err: any) {
+      console.error("ユーザー取得エラー:", err)
+      setError(err.response?.data?.detail || "ユーザー一覧の取得に失敗しました")
+      toast.error("ユーザー一覧の取得に失敗しました")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const filteredUsers = users.filter(user => {
+    const userName = `${user.last_name || ''} ${user.first_name || ''}`.trim()
+    const matchesSearch = userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         user.phone_number?.includes(searchQuery)
+    // ステータスフィルターは一旦無効化（APIから取得したデータにstatusフィールドがないため）
+    return matchesSearch
   })
 
   const getStatusBadge = (status: string) => {
@@ -311,62 +303,78 @@ export default function UsersManagement() {
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.map((user) => (
-                  <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-4 px-4">
-                      <div>
-                        <div className="font-medium text-gray-900">{user.name}</div>
-                        <div className="text-sm text-gray-500 flex items-center gap-2">
-                          <Mail className="h-3 w-3" />
-                          {user.email}
-                        </div>
-                        <div className="text-sm text-gray-500 flex items-center gap-2">
-                          <Phone className="h-3 w-3" />
-                          {user.phone}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      {getStatusBadge(user.status)}
-                    </td>
-                    <td className="py-4 px-4 text-sm text-gray-600">
-                      {user.registrationDate}
-                    </td>
-                    <td className="py-4 px-4 text-sm text-gray-600">
-                      {user.dogs}匹
-                    </td>
-                    <td className="py-4 px-4 text-sm text-gray-600">
-                      {user.lastLogin}
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          onClick={() => handleShowDetails(user)}
-                          className="text-blue-600 border-blue-600 hover:bg-blue-50"
-                        >
-                          詳細
-                        </Button>
-                        {user.status === "pending" && (
-                          <>
-                            <Button size="sm" variant="outline" className="text-green-600 border-green-600 hover:bg-green-50">
-                              <UserCheck className="h-4 w-4 mr-1" />
-                              承認
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-red-600 border-red-600 hover:bg-red-50">
-                              <UserX className="h-4 w-4 mr-1" />
-                              却下
-                            </Button>
-                          </>
-                        )}
-                        <Button size="sm" variant="ghost">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </div>
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-gray-500">
+                      読み込み中...
                     </td>
                   </tr>
-                ))}
+                ) : error ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-red-500">
+                      {error}
+                    </td>
+                  </tr>
+                ) : filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-gray-500">
+                      ユーザーが見つかりません
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUsers.map((user) => {
+                    const userName = `${user.last_name || ''} ${user.first_name || ''}`.trim() || '名前なし'
+                    const registrationDate = user.created_at 
+                      ? new Date(user.created_at).toLocaleDateString('ja-JP')
+                      : 'N/A'
+                    return (
+                      <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="py-4 px-4">
+                          <div>
+                            <div className="font-medium text-gray-900">{userName}</div>
+                            <div className="text-sm text-gray-500 flex items-center gap-2">
+                              <Mail className="h-3 w-3" />
+                              {user.email || 'N/A'}
+                            </div>
+                            {user.phone_number && (
+                              <div className="text-sm text-gray-500 flex items-center gap-2">
+                                <Phone className="h-3 w-3" />
+                                {user.phone_number}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-4 px-4">
+                          <Badge className="bg-green-100 text-green-800">承認済み</Badge>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-600">
+                          {registrationDate}
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-600">
+                          - {/* 犬の数は別途取得が必要 */}
+                        </td>
+                        <td className="py-4 px-4 text-sm text-gray-600">
+                          - {/* 最終ログインは別途取得が必要 */}
+                        </td>
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => handleShowDetails(user)}
+                              className="text-blue-600 border-blue-600 hover:bg-blue-50"
+                            >
+                              詳細
+                            </Button>
+                            <Button size="sm" variant="ghost">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
               </tbody>
             </table>
           </div>
@@ -397,75 +405,62 @@ export default function UsersManagement() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">お名前</label>
-                      <p className="text-gray-900">{selectedUser.name}</p>
+                      <p className="text-gray-900">{`${selectedUser.last_name || ''} ${selectedUser.first_name || ''}`.trim() || '名前なし'}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">メールアドレス</label>
-                      <p className="text-gray-900">{selectedUser.email}</p>
+                      <p className="text-gray-900">{selectedUser.email || 'N/A'}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">電話番号</label>
-                      <p className="text-gray-900">{selectedUser.phone}</p>
+                      <p className="text-gray-900">{selectedUser.phone_number || 'N/A'}</p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">ステータス</label>
-                      <div className="mt-1">{getStatusBadge(selectedUser.status)}</div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">住所</label>
+                      <p className="text-gray-900">{selectedUser.address || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">都道府県</label>
+                      <p className="text-gray-900">{selectedUser.prefecture || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">市区町村</label>
+                      <p className="text-gray-900">{selectedUser.city || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">登録日</label>
+                      <p className="text-gray-900">
+                        {selectedUser.created_at 
+                          ? new Date(selectedUser.created_at).toLocaleString('ja-JP')
+                          : 'N/A'}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* 申請情報 */}
+              {/* 更新日時 */}
               <Card>
                 <CardHeader>
-                  <CardTitle>申請情報</CardTitle>
+                  <CardTitle>更新情報</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">申請日</label>
-                      <p className="text-gray-900">{selectedUser.registrationDate}</p>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">作成日時</label>
+                      <p className="text-gray-900">
+                        {selectedUser.created_at 
+                          ? new Date(selectedUser.created_at).toLocaleString('ja-JP')
+                          : 'N/A'}
+                      </p>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">最終ログイン</label>
-                      <p className="text-gray-900">{selectedUser.lastLogin}</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">登録犬の数</label>
-                      <p className="text-gray-900">{selectedUser.dogs}匹</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 愛犬情報 */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>愛犬情報</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {/* サンプルの愛犬情報 */}
-                    <div className="border rounded-lg p-4 bg-gray-50">
-                      <h4 className="font-medium text-lg mb-3">ポチ（柴犬）</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">年齢</label>
-                          <p className="text-gray-900">3歳</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">体重</label>
-                          <p className="text-gray-900">12kg</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">性別</label>
-                          <p className="text-gray-900">オス</p>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">ワクチン状況</label>
-                          <Badge className="bg-green-100 text-green-800">有効</Badge>
-                        </div>
-                      </div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">更新日時</label>
+                      <p className="text-gray-900">
+                        {selectedUser.updated_at 
+                          ? new Date(selectedUser.updated_at).toLocaleString('ja-JP')
+                          : 'N/A'}
+                      </p>
                     </div>
                   </div>
                 </CardContent>

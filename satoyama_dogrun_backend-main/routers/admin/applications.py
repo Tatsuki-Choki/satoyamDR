@@ -37,15 +37,18 @@ async def get_applications(
     responses = []
     for app in applications:
         # 申請データから直接情報を取得（user_idはNullの可能性がある）
-        user_name = f"{app.user_last_name} {app.user_first_name}"
+        # user_last_nameやuser_first_nameがNoneの場合に対応
+        last_name = app.user_last_name or ""
+        first_name = app.user_first_name or ""
+        user_name = f"{last_name} {first_name}".strip() or "不明"
         
         responses.append(ApplicationResponse(
             id=app.id,
             user_id=app.user_id,  # Noneの場合もある
             user_name=user_name,
-            user_email=app.user_email,
-            user_phone=app.user_phone,
-            dog_name=app.dog_name,
+            user_email=app.user_email or "",
+            user_phone=app.user_phone or "",
+            dog_name=app.dog_name or "",
             dog_breed=app.dog_breed,
             dog_weight=app.dog_weight,
             vaccine_certificate=app.vaccine_certificate,
@@ -101,16 +104,35 @@ async def get_application(
         if not application:
             raise NotFoundError("申請", application_id)
         
-        user = db.query(DbUser).filter(DbUser.id == application.user_id).first()
-        user_name = f"{user.last_name} {user.first_name}" if user else "不明"
+        # user_idが存在する場合はusersテーブルから取得、ない場合は申請データから取得
+        if application.user_id:
+            user = db.query(DbUser).filter(DbUser.id == application.user_id).first()
+            if user:
+                user_name = f"{user.last_name or ''} {user.first_name or ''}".strip() or "不明"
+                user_email = user.email or ""
+                user_phone = user.phone_number or ""
+            else:
+                # user_idはあるがusersテーブルに存在しない場合
+                last_name = application.user_last_name or ""
+                first_name = application.user_first_name or ""
+                user_name = f"{last_name} {first_name}".strip() or "不明"
+                user_email = application.user_email or ""
+                user_phone = application.user_phone or ""
+        else:
+            # user_idがNoneの場合は申請データから直接取得
+            last_name = application.user_last_name or ""
+            first_name = application.user_first_name or ""
+            user_name = f"{last_name} {first_name}".strip() or "不明"
+            user_email = application.user_email or ""
+            user_phone = application.user_phone or ""
         
         return ApplicationResponse(
             id=application.id,
             user_id=application.user_id,
             user_name=user_name,
-            user_email=user.email if user else "",
-            user_phone=user.phone_number if user else "",
-            dog_name=application.dog_name,
+            user_email=user_email,
+            user_phone=user_phone,
+            dog_name=application.dog_name or "",
             dog_breed=application.dog_breed,
             dog_weight=application.dog_weight,
             vaccine_certificate=application.vaccine_certificate,

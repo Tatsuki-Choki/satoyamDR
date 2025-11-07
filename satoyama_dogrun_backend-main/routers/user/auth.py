@@ -83,6 +83,11 @@ async def apply_registration(
         full_address = f"{prefecture} {city} {street} {building or ''}".strip()
 
         # 申請データを作成
+        # パスワードを72バイトに制限（bcryptの制限）
+        password_bytes = password.encode('utf-8')
+        if len(password_bytes) > 72:
+            password = password_bytes[:72].decode('utf-8', errors='ignore')
+        
         application = Application(
             id=str(uuid4()),
             user_id=None,

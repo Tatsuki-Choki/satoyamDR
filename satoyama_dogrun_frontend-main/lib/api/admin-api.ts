@@ -106,5 +106,74 @@ export const adminApiClient = {
       throw error;
     }
   },
+
+  // ユーザー管理
+  getUsers: async (): Promise<any> => {
+    try {
+      const response = await api.get('/admin/users');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  getUserDetail: async (userId: string): Promise<any> => {
+    try {
+      const response = await api.get(`/admin/users/${userId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  // 投稿管理
+  getPosts: async (status?: string): Promise<any> => {
+    try {
+      const params = status ? { status } : {};
+      const response = await api.get('/admin/posts', { params });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  getPostStats: async (): Promise<any> => {
+    try {
+      const response = await api.get('/admin/posts/stats');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  getPostDetail: async (postId: string): Promise<any> => {
+    try {
+      const response = await api.get(`/admin/posts/${postId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  updatePostStatus: async (postId: string, status: string, adminNotes?: string): Promise<any> => {
+    try {
+      const response = await api.put(`/admin/posts/${postId}/status`, {
+        status,
+        admin_notes: adminNotes
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+
+  deletePost: async (postId: string): Promise<any> => {
+    try {
+      const response = await api.delete(`/admin/posts/${postId}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
 };
 
