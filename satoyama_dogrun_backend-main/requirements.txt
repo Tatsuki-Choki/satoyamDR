@@ -14,5 +14,7 @@ httpx==0.25.2
 pymysql==1.1.1
 qrcode[pil]==7.4.2
 Pillow==10.1.0
+supabase==2.24.0
+requests==2.31.0
 
 # Azure build fix - force refresh dependencies 
